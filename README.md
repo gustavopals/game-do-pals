@@ -57,6 +57,9 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 - Clique em um slot: colocar torre
 - `Q`: Arcane Bolt (skill ativa)
 - `E`: Aether Pulse (skill ativa)
+- `R`: reroll das opcoes de upgrade (consome 1 token)
+- `F`: ativa/desativa modo de reposicionar torre (clique em torre sua e depois no slot alvo, custo `12` de ouro)
+- `SPACE`: durante a preparacao, chama a proxima onda e concede bonus de ouro imediato
 - Escolha de upgrade: clique no card
 - Revive coop: aproxime de um aliado `DOWNED` para reviver automaticamente
 

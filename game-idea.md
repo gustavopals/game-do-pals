@@ -1,301 +1,238 @@
-# GAME DEVELOPMENT PROMPT
+# Pals Defence - Game Vision + Development Blueprint
 
-## Project: **Pals Defense**
+Updated on: 2026-03-02
 
-Develop a **2D Roguelite Tower Defense Game** with pixel-art aesthetics inspired by classic MMORPGs such as Metin2 and RuneScape, combined with modern roguelike progression systems.
+## 1. Vision
 
----
+Pals Defence e um roguelite tower defense 2D top-down em pixel art.
+O jogador controla um Warden que:
 
-# 1. CORE GAME CONCEPT
+- move em tempo real
+- usa skills ativas
+- constroi e reposiciona torres
+- escala build por upgrades aleatorios
+- sobrevive a ondas ate o boss final
 
-Pals Defense is a **Roguelite Hero-Based Tower Defense** where players defend magical realms corrupted by dimensional fractures releasing endless monster waves.
+Inspiracao de atmosfera e leitura visual:
 
-The player controls a hero capable of:
+- Metin2 (fantasia corrompida)
+- RuneScape (medieval fantasy clara)
+- Stardew Valley (pixel art charm e legibilidade)
 
-* placing combat units (towers)
-* moving freely across the battlefield
-* casting abilities
-* evolving during runs
-* creating synergistic builds
+## 2. Product Pillars
 
-Each run is unique through procedural upgrades and randomized progression choices.
+- Build variety: escolhas de upgrade com sinergia real.
+- Readability first: combate legivel em qualquer momento da run.
+- Fast runs: loop direto, sem friccao desnecessaria.
+- Authoritative server: regras criticas no backend.
+- Evolucao continua: base preparada para multiplayer e metaprogressao.
 
----
+## 3. Current Vertical Slice (already implemented)
 
-# 2. GAMEPLAY LOOP
+### 3.1 Core loop
 
-Main gameplay cycle:
+- Entrada em sala por dificuldade (`easy`, `normal`, `hard`)
+- Ondas progressivas + boss
+- Ouro e XP por inimigo derrotado
+- Level up com escolha de upgrade
+- Derrota por base destruida ou party wipe
+- Vitoria ao concluir todas as ondas
 
-1. Player enters procedural battlefield
-2. Enemy waves spawn following defined paths
-3. Player gathers resources from defeated enemies
-4. Player deploys or repositions units
-5. Level-up triggers upgrade selection
-6. Build evolves dynamically
-7. Boss wave appears
-8. Player dies or wins
-9. Permanent progression unlocked
-10. New run begins stronger
+### 3.2 Hero and combat
 
----
+- Hero com movimento WASD
+- Ataque basico automatico
+- Skills ativas:
+  - `Q`: Arcane Bolt
+  - `E`: Aether Pulse
+- Cooldowns de skill no HUD
+- Projetis visuais no cliente (hero, torres, inimigos e skills)
 
-# 3. SETTING & LORE
+### 3.3 Towers
 
-The world of **Pals Defence** once connected multiple kingdoms through magical monoliths similar to ancient rune stones.
+- Classes MVP:
+  - Defender
+  - Archer
+  - Mage
+- Colocacao em slots
+- Limite maximo de torres por heroi
+- Novo: reposicionamento de torre durante run (custo de ouro)
 
-After a catastrophic event known as:
+### 3.4 Enemy systems
 
-> **The Shattering**
+- Tipos base: swarm, ranged, armored, runner, elite, boss
+- Status e efeitos:
+  - poison
+  - shock
+  - chain lightning
+- Elite com empower temporal
+- Boss com fases, summon e shockwave
 
-these monoliths began spawning corrupted creatures from other dimensions.
+### 3.5 Roguelite upgrades
 
-Heroes known as **Wardens** defend surviving settlements by channeling ancient tower spirits.
+- Pool de upgrades com raridade
+- Escolha de 1 entre 3 opcoes
+- Reroll de upgrades com tokens
+- Upgrades focados em dano, velocidade, economia e sinergias
 
-Inspirations:
+### 3.6 Cooperative states
 
-* Metin2 mystical corruption portals
-* RuneScape fantasy medieval tone
-* Light-hearted but epic atmosphere
+- Estados de heroi: `alive`, `downed`, `dead`
+- Bleedout para downed
+- Revive por proximidade de aliado
 
----
+### 3.7 Wave pacing
 
-# 4. VISUAL STYLE
+- Spawns por onda com escalonamento
+- Intermission entre ondas
+- Novo: `SPACE` chama proxima onda antecipadamente
+- Bonus de ouro imediato ao antecipar
 
-Art Direction:
+### 3.8 UX/UI and screens
 
-* Top-down 2D perspective
-* Pixel-art characters
-* Cute/chibi proportions
-* Smooth animations
-* Bright fantasy palette
-* Stylized monsters (not realistic)
-* Clear readability for combat
+- Main Menu
+- Difficulty Select
+- Gameplay HUD
+- Upgrade Overlay
+- Run End Screen
+- HUD com estado da run, wave state, status do heroi e skills
 
-References:
+### 3.9 Art direction in-game
 
-* Children of Morta
-* Soul Knight
-* Forager
-* Pixel MMORPG aesthetics
+- Top-down 2D pixel look
+- Terreno em tiles com camadas/config JSON
+- Sprites pixelados de heroi, torres e inimigos
+- Ambient motion (motes, pulsos, overlays de status)
 
----
+### 3.10 Localization
 
-# 5. PLAYER SYSTEM
+- Suporte PT/EN com toggle em runtime
+- Textos principais de gameplay/local UI localizados
+- Revisao completa de i18n fica para fase final de polish
 
-Player controls a Hero with:
+## 4. Final Product Goal (target)
 
-## Attributes
+Entregar uma versao final bonita, jogavel e coesa com:
 
-* Strength → tower damage bonus
-* Intelligence → ability power
-* Agility → attack speed & cooldown
-* Vitality → HP & regeneration
-* Luck → upgrade rarity chance
+- identidade visual forte (pixel art fantasy)
+- combate satisfatorio e legivel
+- progresso de run com escolhas impactantes
+- curva de dificuldade consistente
+- conteudo suficiente para replay
 
-## Combat
+## 5. Gameplay Design Details
 
-* Auto basic attack
-* Active skills (cooldowns)
-* Movement in real time
+### 5.1 Run loop target
 
----
+1. Entrar no mapa
+2. Posicionar torres iniciais
+3. Segurar ondas e coletar recursos
+4. Evoluir build por level ups
+5. Ajustar posicionamento e ritmo entre ondas
+6. Enfrentar boss de fim de run
+7. Receber progresso permanente
+8. Repetir com novas variacoes
 
-# 6. TOWER / UNIT SYSTEM
+### 5.2 Hero progression model
 
-Players deploy class-based towers:
+Atributos alvo (expansao):
 
-### Defender
+- Strength: bonus de dano de torres
+- Intelligence: poder de habilidades
+- Agility: attack speed e cooldown reduction
+- Vitality: HP e sustain
+- Luck: qualidade media de upgrades
 
-* High HP
-* Blocks enemies
-* Taunt abilities
+### 5.3 Tower philosophy
 
-### Archer
+- Defender: seguranca de rota
+- Archer: single target DPS
+- Mage: area/control
+- Healer (expansao): sustain e buffs
 
-* Long range DPS
-* Critical hits
-* Multi-shot upgrades
+### 5.4 Build archetypes target
 
-### Mage
+- Poison Swarm
+- Lightning Chain
+- Crit Archer
+- Summoner/Utility
+- Defense Wall
 
-* Area damage
-* Elemental effects
+## 6. Visual and Audio Direction (target)
 
-### Healer
+- Pixel art top-down com paleta fantasy vibrante
+- Silhuetas claras para cada classe/tipo
+- VFX curtos e informativos
+- UI diegetica com tema "arcane wardens"
+- SFX por categoria: hit, cast, wave, elite, boss, UI
+- Musica por fase: calm intermission, tense combat, boss escalation
 
-* Regeneration aura
-* Buff allies
+## 7. Technical Architecture
 
-Towers can:
+### 7.1 Stack (defined)
 
-* be repositioned
-* receive equipment
-* evolve during runs
+- Client: Phaser + Vite + TypeScript
+- Server: Node.js + WebSocket (`ws`) + TypeScript
+- Shared: tipos, constantes, dados e RNG deterministico
 
----
+### 7.2 Networking model
 
-# 7. ROGUELITE PROGRESSION
+- Server authoritative para combate/regras
+- Cliente renderiza snapshot e VFX
+- Contratos de mensagem centralizados no pacote shared
 
-During gameplay, player receives randomized upgrades:
+### 7.3 Systems
 
-Examples:
+- Wave System
+- Path System
+- Combat System
+- Enemy Ability System
+- Upgrade System
+- Progression Store (persistencia basica)
 
-* +2 projectiles
-* Fire damage conversion
-* Poison stacking
-* Chain lightning attacks
-* Summoned spirits
-* Tower duplication
-* Attack speed scaling
+## 8. Meta Progression Roadmap
 
-Upgrades must allow **build synergies**.
+Planejado para proximas fases:
 
-Example builds:
+- arvore global de talentos
+- desbloqueio de herois e torres
+- pool de equipamentos
+- currency persistente mais robusta
+- objetivos/missoes de conta
 
-* Poison Swarm
-* Lightning Chain
-* Summoner Army
-* Critical Archer Build
-* Immortal Defense Wall
+## 9. Multiplayer Roadmap
 
----
+Fase atual: arquitetura pronta para evoluir.
+Fases seguintes:
 
-# 8. META PROGRESSION
+- salas explicitas (2-4 jogadores)
+- matchmaking simples por lobby code
+- sincronizacao de revive/co-op actions
+- reconnection/resume de partida
 
-Persistent progression between runs:
+## 10. Short-Term Backlog (next steps)
 
-* Global Skill Tree
-* Hero unlocks
-* New tower classes
-* Permanent stat bonuses
-* New abilities
-* Equipment unlock pool
+1. Refinar reposicionamento de torres (feedback visual, custo dinamico, UX).
+2. Revive manual (segurar tecla) com VFX dedicado.
+3. Balance pass de inimigos, boss e economia de ouro.
+4. Tooltips/context panel para status e efeitos.
+5. Primeira camada de audio (SFX essenciais).
 
-Currency earned even on failed runs.
+## 11. Final Polish Backlog
 
----
+- revisao completa PT/EN em todas as telas e textos de sistema
+- polishing de UI visual "shipping quality"
+- pass final de arte de personagens e mapa
+- QA de performance + gameplay feel
+- configuracoes (volume, idioma inicial, keybinds)
 
-# 9. ENEMY SYSTEM
+## 12. Definition of Done (release candidate)
 
-Enemies spawn in waves:
+Uma build e considerada release candidate quando:
 
-Types:
-
-* melee swarm
-* ranged attackers
-* armored units
-* fast runners
-* elite enemies
-* bosses
-
-Boss mechanics:
-
-* area attacks
-* summoning
-* phase transitions
-
----
-
-# 10. MAP DESIGN
-
-Maps contain:
-
-* enemy paths
-* deploy zones
-* resource drops
-* environmental modifiers
-* random events
-
-Optional procedural generation preferred.
-
----
-
-# 11. GAME SYSTEMS ARCHITECTURE
-
-Target architecture:
-
-Frontend:
-
-* HTML5 Canvas or WebGL
-* Phaser / PixiJS recommended
-
-Backend:
-
-* Node.js authoritative server
-* Multiplayer-ready architecture
-* WebSocket communication
-
-Core systems required:
-
-* Entity Component System (ECS)
-* Wave Manager
-* Upgrade Generator
-* Combat Engine
-* Pathfinding
-* Skill System
-* Save/Progression System
-
----
-
-# 12. MULTIPLAYER (OPTIONAL EXPANSION)
-
-Cooperative defense mode:
-
-* 2–4 players
-* shared waves
-* individual builds
-* synchronized progression
-
-Server controls:
-
-* enemy spawning
-* damage validation
-* upgrade seeds
-
----
-
-# 13. TECHNICAL REQUIREMENTS
-
-Game must support:
-
-* deterministic combat logic
-* scalable wave spawning
-* modular ability system
-* upgrade injection system
-* easy content expansion
-
-Avoid hardcoded logic.
-
-All gameplay elements should be data-driven.
-
----
-
-# 14. INITIAL MVP FEATURES
-
-Implement first:
-
-* 1 hero
-* 3 tower types
-* 10 upgrades
-* 5 enemy types
-* 1 boss
-* 1 map
-* basic progression system
-
-Focus on playable loop first.
-
----
-
-# 15. DESIGN GOAL
-
-The game should feel like:
-
-> "RuneScape meets Roguelike Tower Defense with modern indie replayability."
-
-High replay value is mandatory.
-
-Each run must feel different.
-
----
-
-END OF SPECIFICATION
+- loop completo e estavel por varias runs consecutivas
+- sem erros criticos de rede em fluxo normal
+- combate legivel e responsivo
+- progressao de run e metaprogressao funcionando
+- UX consistente em PT e EN
+- arte, audio e UI em nivel apresentavel/profissional

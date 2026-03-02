@@ -1,5 +1,7 @@
 import { MAX_WAVES, type EnemyTypeId, SeededRng } from "@pals-defence/shared";
 
+const INTERMISSION_DURATION_MS = 3500;
+
 export interface SpawnInstruction {
   typeId: EnemyTypeId;
   pathId: number;
@@ -32,6 +34,24 @@ export class WaveSystem {
     return this.completed;
   }
 
+  get waveState(): "spawning" | "intermission" | "completed" {
+    if (this.completed) {
+      return "completed";
+    }
+    if (this.intermissionMs > 0) {
+      return "intermission";
+    }
+    return "spawning";
+  }
+
+  get intermissionRemainingMs(): number {
+    return Math.max(0, this.intermissionMs);
+  }
+
+  get remainingWaveSpawns(): number {
+    return this.remainingSpawns;
+  }
+
   reset(): void {
     this.wave = 1;
     this.remainingSpawns = 0;
@@ -41,6 +61,16 @@ export class WaveSystem {
     this.currentPool = [];
     this.completed = false;
     this.startWave(1);
+  }
+
+  skipIntermission(): boolean {
+    if (this.completed || this.intermissionMs <= 0 || this.wave >= this.totalWaves) {
+      return false;
+    }
+
+    this.intermissionMs = 0;
+    this.startWave(this.wave + 1);
+    return true;
   }
 
   update(
@@ -56,6 +86,7 @@ export class WaveSystem {
     if (this.intermissionMs > 0) {
       this.intermissionMs -= deltaMs;
       if (this.intermissionMs <= 0) {
+        this.intermissionMs = 0;
         this.startWave(this.wave + 1);
       }
       return [];
@@ -82,7 +113,7 @@ export class WaveSystem {
       if (this.wave >= this.totalWaves) {
         this.completed = true;
       } else {
-        this.intermissionMs = 3500;
+        this.intermissionMs = INTERMISSION_DURATION_MS;
       }
     }
 

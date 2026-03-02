@@ -44,6 +44,7 @@ export interface HeroSnapshot {
   xp: number;
   nextLevelXp: number;
   gold: number;
+  rerollTokens: number;
   maxTowers: number;
   skills: HeroSkillSnapshot[];
   downedRemainingMs: number;
@@ -88,6 +89,9 @@ export interface GameSnapshot {
   map: MapConfig;
   wave: number;
   totalWaves: number;
+  waveState: "spawning" | "intermission" | "completed";
+  intermissionRemainingMs: number;
+  remainingWaveSpawns: number;
   runStatus: "running" | "won" | "lost";
   baseHp: number;
   baseMaxHp: number;
@@ -217,6 +221,17 @@ export type ClientMessage =
       upgradeId: string;
     }
   | {
+      type: "rerollUpgrades";
+    }
+  | {
+      type: "startNextWave";
+    }
+  | {
+      type: "moveTower";
+      towerId: number;
+      slotIndex: number;
+    }
+  | {
       type: "castSkill";
       skillId: HeroSkillId;
       targetX: number;
@@ -240,6 +255,7 @@ export type ServerMessage =
   | {
       type: "upgradeOptions";
       options: UpgradeOption[];
+      rerollTokens: number;
     }
   | {
       type: "runEnded";

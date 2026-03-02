@@ -98,6 +98,48 @@ body {
   gap: 12px;
 }
 
+.upgrade-actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.upgrade-reroll-count {
+  margin: 0;
+  color: #d7c89f;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.upgrade-reroll-button {
+  border: 1px solid rgba(204, 183, 129, 0.75);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(75, 92, 87, 0.95), rgba(53, 66, 62, 0.95));
+  color: #f2ebda;
+  font-family: "Cinzel", "Palatino Linotype", serif;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.upgrade-reroll-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+  border-color: rgba(237, 216, 156, 0.95);
+}
+
+.upgrade-reroll-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .upgrade-card {
   border: 1px solid rgba(165, 176, 150, 0.3);
   border-radius: 11px;

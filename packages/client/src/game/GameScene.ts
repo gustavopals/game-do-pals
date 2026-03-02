@@ -7,15 +7,19 @@ import type {
   PlayerProgression,
   ProjectileTrace,
   RunSummary,
+  TowerSnapshot,
   TowerTypeId,
 } from "@pals-defence/shared";
+import { TOWER_RELOCATE_COST } from "@pals-defence/shared";
 import Phaser from "phaser";
 
 import {
+  isConnectionErrorMessage,
   loadLocale,
   saveLocale,
   toggleLocale,
   tr,
+  trErrorMessage,
   trSkillName,
   type Locale,
 } from "../i18n";
@@ -34,6 +38,8 @@ import { DEFAULT_MAP_LAYER_CONFIG, type MapLayerConfig } from "./assets/mapLayer
 const TITLE_FONT = '"Cinzel", "Palatino Linotype", serif';
 const BODY_FONT = '"Spectral", "Segoe UI", serif';
 const TERRAIN_TILE_SIZE = 16;
+const EARLY_WAVE_BONUS_INTERVAL_MS = 500;
+const TOWER_PICK_RADIUS = 26;
 
 type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd";
 
@@ -69,6 +75,10 @@ export class GameScene extends Phaser.Scene {
   private hudBackdrop!: Phaser.GameObjects.Rectangle;
   private statusBackdrop!: Phaser.GameObjects.Rectangle;
   private localeButton!: Phaser.GameObjects.Text;
+  private waveActionContainer!: Phaser.GameObjects.Container;
+  private waveActionButton!: Phaser.GameObjects.Rectangle;
+  private waveActionLabel!: Phaser.GameObjects.Text;
+  private waveActionInfo!: Phaser.GameObjects.Text;
 
   private playerId: string | null = null;
   private selectedTower: TowerTypeId = "defender";
@@ -78,6 +88,8 @@ export class GameScene extends Phaser.Scene {
   private runEndProgression: PlayerProgression | null = null;
   private connectionMessage = "";
   private locale: Locale = "pt";
+  private moveModeEnabled = false;
+  private selectedMoveTowerId: number | null = null;
 
   private inputSendAccumulatorMs = 0;
   private pointerWorldX = 640;
@@ -101,6 +113,9 @@ export class GameScene extends Phaser.Scene {
     d: Phaser.Input.Keyboard.Key;
     q: Phaser.Input.Keyboard.Key;
     e: Phaser.Input.Keyboard.Key;
+    r: Phaser.Input.Keyboard.Key;
+    f: Phaser.Input.Keyboard.Key;
+    space: Phaser.Input.Keyboard.Key;
     one: Phaser.Input.Keyboard.Key;
     two: Phaser.Input.Keyboard.Key;
     three: Phaser.Input.Keyboard.Key;
@@ -178,6 +193,8 @@ export class GameScene extends Phaser.Scene {
       this.handleToggleLocale();
     });
 
+    this.createWaveActionUi();
+
     this.keys = this.input.keyboard?.addKeys({
       w: Phaser.Input.Keyboard.KeyCodes.W,
       a: Phaser.Input.Keyboard.KeyCodes.A,
@@ -185,6 +202,9 @@ export class GameScene extends Phaser.Scene {
       d: Phaser.Input.Keyboard.KeyCodes.D,
       q: Phaser.Input.Keyboard.KeyCodes.Q,
       e: Phaser.Input.Keyboard.KeyCodes.E,
+      r: Phaser.Input.Keyboard.KeyCodes.R,
+      f: Phaser.Input.Keyboard.KeyCodes.F,
+      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
       one: Phaser.Input.Keyboard.KeyCodes.ONE,
       two: Phaser.Input.Keyboard.KeyCodes.TWO,
       three: Phaser.Input.Keyboard.KeyCodes.THREE,
@@ -198,7 +218,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       this.pointerWorldX = pointer.worldX;
       this.pointerWorldY = pointer.worldY;
-      this.tryPlaceTower(pointer.worldX, pointer.worldY);
+      this.handleWorldPointerDown(pointer.worldX, pointer.worldY);
     });
 
     this.client.setHandlers({
@@ -210,6 +230,7 @@ export class GameScene extends Phaser.Scene {
       },
       onState: (snapshot) => {
         this.snapshot = snapshot;
+        this.sanitizeTowerMoveSelection(snapshot);
         this.consumeProjectileTraces(snapshot.projectileTraces);
 
         if (this.screenMode === "playing" && snapshot.runStatus === "running") {
@@ -219,31 +240,36 @@ export class GameScene extends Phaser.Scene {
           } else if (localHero?.state === "downed") {
             const seconds = Math.ceil(localHero.downedRemainingMs / 1000);
             this.statusText.setText(tr(this.locale, "downed_hint", { seconds }));
+          } else if (snapshot.waveState === "intermission") {
+            this.statusText.setText(this.getIntermissionHintText(snapshot));
           } else {
             this.statusText.setText(this.getControlHintText());
           }
         }
       },
-      onUpgradeOptions: (options) => {
+      onUpgradeOptions: (options, rerollTokens) => {
         this.upgradeOverlay.show(options, (upgradeId) => {
           this.client.chooseUpgrade(upgradeId);
-        }, this.locale);
+        }, this.locale, rerollTokens, () => {
+          this.client.rerollUpgrades();
+        });
       },
       onRunEnded: (summary, progression) => {
         this.upgradeOverlay.hide();
         this.projectiles = [];
+        this.resetTowerMoveState();
         this.runEndSummary = summary;
         this.runEndProgression = progression;
         this.screenMode = "runEnd";
         this.renderScreen();
       },
       onError: (message) => {
+        const localizedMessage = trErrorMessage(this.locale, message);
         this.upgradeOverlay.hide();
-        this.statusText.setText(message);
-        const normalized = message.toLowerCase();
-        const isConnectionError =
-          normalized.includes("connection") || normalized.includes("failed to connect");
+        this.statusText.setText(localizedMessage);
+        const isConnectionError = isConnectionErrorMessage(message);
         if (isConnectionError) {
+          this.resetTowerMoveState();
           this.connectionMessage = message;
           this.screenMode = "menu";
           this.renderScreen();
@@ -284,11 +310,24 @@ export class GameScene extends Phaser.Scene {
       this.selectedTower = "mage";
     }
 
+    if (Phaser.Input.Keyboard.JustDown(this.keys.f)) {
+      this.moveModeEnabled = !this.moveModeEnabled;
+      if (!this.moveModeEnabled) {
+        this.selectedMoveTowerId = null;
+      }
+    }
+
     if (canAct && Phaser.Input.Keyboard.JustDown(this.keys.q)) {
       this.client.castSkill("arcaneBolt", this.pointerWorldX, this.pointerWorldY);
     }
     if (canAct && Phaser.Input.Keyboard.JustDown(this.keys.e)) {
       this.client.castSkill("aetherPulse", this.pointerWorldX, this.pointerWorldY);
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.r)) {
+      this.tryRerollUpgradeOptions();
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.space)) {
+      this.tryStartNextWave();
     }
 
     const dx = canAct ? Number(this.keys.d.isDown) - Number(this.keys.a.isDown) : 0;
@@ -299,6 +338,14 @@ export class GameScene extends Phaser.Scene {
       this.inputSendAccumulatorMs = 0;
       this.client.sendInput(dx, dy);
     }
+  }
+
+  private handleWorldPointerDown(x: number, y: number): void {
+    if (this.tryMoveTowerInteraction(x, y)) {
+      return;
+    }
+
+    this.tryPlaceTower(x, y);
   }
 
   private tryPlaceTower(x: number, y: number): void {
@@ -316,6 +363,40 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.client.placeTower(this.selectedTower, slotIndex);
+  }
+
+  private tryMoveTowerInteraction(x: number, y: number): boolean {
+    if (!this.moveModeEnabled && this.selectedMoveTowerId === null) {
+      return false;
+    }
+
+    if (this.screenMode !== "playing" || !this.snapshot || this.snapshot.runStatus !== "running") {
+      return false;
+    }
+
+    const localHero = this.getLocalHero();
+    if (!localHero || localHero.state !== "alive" || localHero.hp <= 0) {
+      return false;
+    }
+
+    const clickedTower = this.findClosestOwnedTower(x, y);
+    if (clickedTower) {
+      this.selectedMoveTowerId = clickedTower.id;
+      return true;
+    }
+
+    if (this.selectedMoveTowerId === null) {
+      return true;
+    }
+
+    const slotIndex = this.findClosestSlotIndex(x, y);
+    if (slotIndex < 0) {
+      return true;
+    }
+
+    this.client.moveTower(this.selectedMoveTowerId, slotIndex);
+    this.selectedMoveTowerId = null;
+    return true;
   }
 
   private findClosestSlotIndex(x: number, y: number): number {
@@ -336,6 +417,59 @@ export class GameScene extends Phaser.Scene {
     }
 
     return bestDistance <= 32 ? bestIndex : -1;
+  }
+
+  private findClosestOwnedTower(x: number, y: number): TowerSnapshot | null {
+    if (!this.snapshot || !this.playerId) {
+      return null;
+    }
+
+    let bestTower: TowerSnapshot | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const tower of this.snapshot.towers) {
+      if (tower.ownerId !== this.playerId) {
+        continue;
+      }
+
+      const distance = Math.hypot(tower.x - x, tower.y - y);
+      if (distance < bestDistance) {
+        bestTower = tower;
+        bestDistance = distance;
+      }
+    }
+
+    return bestDistance <= TOWER_PICK_RADIUS ? bestTower : null;
+  }
+
+  private tryRerollUpgradeOptions(): void {
+    if (!this.upgradeOverlay.isVisible()) {
+      return;
+    }
+
+    const hero = this.getLocalHero();
+    if (!hero || hero.rerollTokens <= 0) {
+      return;
+    }
+
+    this.client.rerollUpgrades();
+  }
+
+  private tryStartNextWave(): void {
+    if (this.screenMode !== "playing" || !this.snapshot || this.snapshot.runStatus !== "running") {
+      return;
+    }
+
+    if (this.snapshot.waveState !== "intermission") {
+      return;
+    }
+
+    const hero = this.getLocalHero();
+    if (!hero || hero.state === "dead") {
+      return;
+    }
+
+    this.client.startNextWave();
   }
 
   private consumeProjectileTraces(traces: ProjectileTrace[]): void {
@@ -412,6 +546,7 @@ export class GameScene extends Phaser.Scene {
       this.graphics.strokeCircle(slot.x, slot.y, 8);
     }
 
+    this.drawTowerMoveOverlay(snapshot, occupiedSlots);
     this.drawEnemyOverlays(snapshot.enemies);
     this.drawHeroOverlays(snapshot.heroes);
 
@@ -479,6 +614,7 @@ export class GameScene extends Phaser.Scene {
       this.hudText.setText("");
       this.hudBackdrop.setVisible(false);
       this.statusBackdrop.setVisible(false);
+      this.waveActionContainer.setVisible(false);
       return;
     }
 
@@ -487,6 +623,7 @@ export class GameScene extends Phaser.Scene {
 
     if (!this.snapshot) {
       this.hudText.setText(tr(this.locale, "connecting_title"));
+      this.waveActionContainer.setVisible(false);
       return;
     }
 
@@ -503,6 +640,7 @@ export class GameScene extends Phaser.Scene {
           hp: hero.hp,
           maxHp: hero.maxHp,
           gold: hero.gold,
+          rerolls: hero.rerollTokens,
           level: hero.level,
           xp: hero.xp,
           nextXp: hero.nextLevelXp,
@@ -512,6 +650,7 @@ export class GameScene extends Phaser.Scene {
       : tr(this.locale, "hero_not_joined");
     const boss = this.snapshot.enemies.find((enemy) => enemy.isBoss);
     const bossInfo = boss ? tr(this.locale, "boss_phase", { phase: boss.bossPhase }) : "";
+    const waveState = this.getWaveStateLabel(this.snapshot);
 
     const skillsInfo = hero
       ? hero.skills
@@ -530,6 +669,7 @@ export class GameScene extends Phaser.Scene {
           difficulty: this.getDifficultyLabel(this.snapshot.difficulty),
           wave: this.snapshot.wave,
           totalWaves: this.snapshot.totalWaves,
+          waveState,
           baseHp: this.snapshot.baseHp,
           baseMaxHp: this.snapshot.baseMaxHp,
           enemies: this.snapshot.enemies.length,
@@ -545,6 +685,8 @@ export class GameScene extends Phaser.Scene {
         skillsInfo,
       ].join("\n"),
     );
+
+    this.updateWaveActionUi(this.snapshot);
   }
 
   private renderScreen(): void {
@@ -589,7 +731,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderMenuScreen(): void {
-    this.statusText.setText(this.connectionMessage || tr(this.locale, "menu_status_default"));
+    this.statusText.setText(
+      this.connectionMessage
+        ? trErrorMessage(this.locale, this.connectionMessage)
+        : tr(this.locale, "menu_status_default"),
+    );
     this.addScreenTitle(tr(this.locale, "menu_title"));
     this.addScreenSubtitle(tr(this.locale, "menu_subtitle"));
     this.addScreenLore(tr(this.locale, "menu_lore"), 280);
@@ -680,6 +826,7 @@ export class GameScene extends Phaser.Scene {
     this.runEndProgression = null;
     this.playerId = null;
     this.snapshot = null;
+    this.resetTowerMoveState();
     this.latestProjectileTraceId = 0;
     this.projectiles = [];
     this.clearEntitySprites();
@@ -833,6 +980,8 @@ export class GameScene extends Phaser.Scene {
             seconds: Math.ceil(localHero.downedRemainingMs / 1000),
           }),
         );
+      } else if (this.snapshot.waveState === "intermission") {
+        this.statusText.setText(this.getIntermissionHintText(this.snapshot));
       } else {
         this.statusText.setText(this.getControlHintText());
       }
@@ -868,7 +1017,120 @@ export class GameScene extends Phaser.Scene {
       tower: this.getTowerLabel(this.selectedTower),
       skillQ: trSkillName(this.locale, "arcaneBolt", "Arcane Bolt"),
       skillE: trSkillName(this.locale, "aetherPulse", "Aether Pulse"),
+      move: this.getTowerMoveHintText(),
     });
+  }
+
+  private getTowerMoveHintText(): string {
+    if (!this.moveModeEnabled) {
+      return tr(this.locale, "move_mode_off", { cost: TOWER_RELOCATE_COST });
+    }
+    if (this.selectedMoveTowerId !== null) {
+      return tr(this.locale, "move_mode_selected", { cost: TOWER_RELOCATE_COST });
+    }
+    return tr(this.locale, "move_mode_on", { cost: TOWER_RELOCATE_COST });
+  }
+
+  private getIntermissionHintText(snapshot: GameSnapshot): string {
+    const seconds = Math.ceil(snapshot.intermissionRemainingMs / 1000);
+    const nextWave = Math.min(snapshot.totalWaves, snapshot.wave + 1);
+    const bonus = this.getEarlyWaveBonus(snapshot.intermissionRemainingMs);
+    return tr(this.locale, "intermission_hint", {
+      seconds,
+      wave: nextWave,
+      bonus,
+    });
+  }
+
+  private getWaveStateLabel(snapshot: GameSnapshot): string {
+    if (snapshot.waveState === "intermission") {
+      return tr(this.locale, "wave_state_intermission", {
+        seconds: Math.ceil(snapshot.intermissionRemainingMs / 1000),
+      });
+    }
+    if (snapshot.waveState === "completed") {
+      return tr(this.locale, "wave_state_completed");
+    }
+
+    return tr(this.locale, "wave_state_spawning", {
+      remaining: snapshot.remainingWaveSpawns,
+    });
+  }
+
+  private getEarlyWaveBonus(intermissionRemainingMs: number): number {
+    return Math.max(1, Math.floor(intermissionRemainingMs / EARLY_WAVE_BONUS_INTERVAL_MS));
+  }
+
+  private createWaveActionUi(): void {
+    this.waveActionContainer = this.add.container(0, 0).setDepth(190).setVisible(false);
+    this.waveActionButton = this.add
+      .rectangle(1110, 652, 308, 62, 0x243739, 0.94)
+      .setStrokeStyle(2, 0xc4b37f, 0.9)
+      .setDepth(191)
+      .setInteractive({ useHandCursor: true });
+    const sheen = this.add
+      .rectangle(1110, 637, 286, 16, 0xf6e5b8, 0.12)
+      .setDepth(192);
+    this.waveActionLabel = this.add
+      .text(1110, 648, tr(this.locale, "wave_call_button"), {
+        color: "#f3ebd6",
+        fontSize: "20px",
+        fontFamily: TITLE_FONT,
+      })
+      .setOrigin(0.5)
+      .setDepth(193);
+    this.waveActionInfo = this.add
+      .text(1110, 682, "", {
+        color: "#dbcfae",
+        fontSize: "14px",
+        fontFamily: BODY_FONT,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(193);
+
+    this.waveActionButton.on("pointerover", () => {
+      this.waveActionButton.setFillStyle(0x334d4f, 1);
+      this.waveActionButton.setScale(1.02, 1.04);
+      sheen.setScale(1.02, 1.04);
+    });
+    this.waveActionButton.on("pointerout", () => {
+      this.waveActionButton.setFillStyle(0x243739, 0.94);
+      this.waveActionButton.setScale(1, 1);
+      sheen.setScale(1, 1);
+    });
+    this.waveActionButton.on("pointerdown", () => {
+      this.tryStartNextWave();
+    });
+
+    this.waveActionContainer.add([
+      this.waveActionButton,
+      sheen,
+      this.waveActionLabel,
+      this.waveActionInfo,
+    ]);
+  }
+
+  private updateWaveActionUi(snapshot: GameSnapshot): void {
+    const isVisible =
+      this.screenMode === "playing" &&
+      snapshot.runStatus === "running" &&
+      snapshot.waveState === "intermission";
+    this.waveActionContainer.setVisible(isVisible);
+    if (!isVisible) {
+      return;
+    }
+
+    const seconds = Math.ceil(snapshot.intermissionRemainingMs / 1000);
+    const nextWave = Math.min(snapshot.totalWaves, snapshot.wave + 1);
+    const bonus = this.getEarlyWaveBonus(snapshot.intermissionRemainingMs);
+    this.waveActionLabel.setText(tr(this.locale, "wave_call_button"));
+    this.waveActionInfo.setText(
+      tr(this.locale, "wave_call_info", {
+        wave: nextWave,
+        seconds,
+        bonus,
+      }),
+    );
   }
 
   private getRunStatusLabel(runStatus: RunSummary["runStatus"] | undefined): string {
@@ -1237,6 +1499,43 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private drawTowerMoveOverlay(snapshot: GameSnapshot, occupiedSlots: Set<number>): void {
+    const selectedTower = this.getSelectedOwnedTower(snapshot);
+    const hoveredSlotIndex =
+      selectedTower !== null ? this.findClosestSlotIndex(this.pointerWorldX, this.pointerWorldY) : -1;
+
+    if (this.moveModeEnabled) {
+      for (let i = 0; i < snapshot.map.towerSlots.length; i += 1) {
+        if (occupiedSlots.has(i)) {
+          continue;
+        }
+
+        const slot = snapshot.map.towerSlots[i];
+        const isHovered = i === hoveredSlotIndex;
+        this.graphics.lineStyle(isHovered ? 2.5 : 1.6, isHovered ? 0xf7efcb : 0x77c8be, isHovered ? 0.95 : 0.55);
+        this.graphics.strokeCircle(slot.x, slot.y, isHovered ? 19 : 17);
+      }
+    }
+
+    if (!selectedTower) {
+      return;
+    }
+
+    const pulse = 0.5 + Math.sin(this.time.now / 125) * 0.5;
+    this.graphics.lineStyle(3, 0x8af7ff, 0.95);
+    this.graphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 17 + pulse * 2.2);
+    this.graphics.lineStyle(1.4, 0xe5fdfd, 0.75);
+    this.graphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 11 + pulse * 1.6);
+
+    if (hoveredSlotIndex < 0 || occupiedSlots.has(hoveredSlotIndex)) {
+      return;
+    }
+
+    const targetSlot = snapshot.map.towerSlots[hoveredSlotIndex];
+    this.graphics.lineStyle(2, 0xe9f4d0, 0.75);
+    this.graphics.lineBetween(selectedTower.x, selectedTower.y - 1, targetSlot.x, targetSlot.y);
+  }
+
   private getHeroTextureKey(hero: HeroSnapshot): string {
     if (hero.state === "dead") {
       return HERO_TEXTURE_KEYS.dead;
@@ -1346,6 +1645,36 @@ export class GameScene extends Phaser.Scene {
       this.graphics.fillStyle(0xe6e8cf, mote.alpha);
       this.graphics.fillCircle(mote.x, mote.y, mote.size);
     }
+  }
+
+  private getSelectedOwnedTower(snapshot = this.snapshot): TowerSnapshot | null {
+    if (!snapshot || !this.playerId || this.selectedMoveTowerId === null) {
+      return null;
+    }
+
+    return (
+      snapshot.towers.find(
+        (tower) => tower.id === this.selectedMoveTowerId && tower.ownerId === this.playerId,
+      ) ?? null
+    );
+  }
+
+  private sanitizeTowerMoveSelection(snapshot = this.snapshot): void {
+    if (!snapshot || !this.playerId || this.selectedMoveTowerId === null) {
+      return;
+    }
+
+    const towerExists = snapshot.towers.some(
+      (tower) => tower.id === this.selectedMoveTowerId && tower.ownerId === this.playerId,
+    );
+    if (!towerExists) {
+      this.selectedMoveTowerId = null;
+    }
+  }
+
+  private resetTowerMoveState(): void {
+    this.moveModeEnabled = false;
+    this.selectedMoveTowerId = null;
   }
 
   private getLocalHero(snapshot = this.snapshot) {

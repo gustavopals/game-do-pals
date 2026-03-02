@@ -13,7 +13,7 @@ import type {
 interface ClientHandlers {
   onConnected: (playerId: string) => void;
   onState: (snapshot: GameSnapshot) => void;
-  onUpgradeOptions: (options: UpgradeOption[]) => void;
+  onUpgradeOptions: (options: UpgradeOption[], rerollTokens: number) => void;
   onRunEnded: (summary: RunSummary, progression: PlayerProgression) => void;
   onError: (message: string) => void;
 }
@@ -125,6 +125,26 @@ export class GameClient {
     });
   }
 
+  rerollUpgrades(): void {
+    this.send({
+      type: "rerollUpgrades",
+    });
+  }
+
+  startNextWave(): void {
+    this.send({
+      type: "startNextWave",
+    });
+  }
+
+  moveTower(towerId: number, slotIndex: number): void {
+    this.send({
+      type: "moveTower",
+      towerId,
+      slotIndex,
+    });
+  }
+
   castSkill(skillId: HeroSkillId, targetX: number, targetY: number): void {
     this.send({
       type: "castSkill",
@@ -152,7 +172,7 @@ export class GameClient {
         this.handlers.onState(parsed.snapshot);
         break;
       case "upgradeOptions":
-        this.handlers.onUpgradeOptions(parsed.options);
+        this.handlers.onUpgradeOptions(parsed.options, parsed.rerollTokens);
         break;
       case "runEnded":
         this.handlers.onRunEnded(parsed.summary, parsed.progression);

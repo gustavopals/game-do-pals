@@ -12,6 +12,7 @@ export const MAX_WAVES = 6;
 
 export const INITIAL_TOWER_CAP = 3;
 export const UPGRADE_CHOICES = 3;
+export const TOWER_RELOCATE_COST = 12;
 
 export const XP_PER_LEVEL_BASE = 35;
 export const XP_PER_LEVEL_GROWTH = 1.2;

@@ -11,6 +11,7 @@ import {
   INITIAL_TOWER_CAP,
   MAX_WAVES,
   TICK_MS,
+  TOWER_RELOCATE_COST,
   TOWER_DEFINITIONS,
   XP_PER_LEVEL_BASE,
   XP_PER_LEVEL_GROWTH,
@@ -87,6 +88,7 @@ const REVIVE_RANGE = 56;
 const REVIVE_DECAY_FACTOR = 0.7;
 const ARCANE_BOLT_SHOCK_MS = 2800;
 const AETHER_PULSE_POISON_MS = 5200;
+const EARLY_WAVE_BONUS_INTERVAL_MS = 500;
 
 export class GameRoom {
   private readonly map = DEFAULT_MAP;
@@ -187,8 +189,20 @@ export class GameRoom {
         this.handleTowerPlacement(session.hero, payload.towerTypeId, payload.slotIndex);
         break;
       }
+      case "moveTower": {
+        this.handleTowerRelocation(session.hero, payload.towerId, payload.slotIndex);
+        break;
+      }
       case "chooseUpgrade": {
         this.handleUpgradeChoice(playerId, payload.upgradeId);
+        break;
+      }
+      case "rerollUpgrades": {
+        this.handleUpgradeReroll(playerId);
+        break;
+      }
+      case "startNextWave": {
+        this.handleStartNextWave(playerId);
         break;
       }
       case "castSkill": {
@@ -243,6 +257,7 @@ export class GameRoom {
       this.send(socket, {
         type: "upgradeOptions",
         options: hero.pendingUpgradeOptions,
+        rerollTokens: hero.rerollTokens,
       });
     }
 
@@ -307,6 +322,45 @@ export class GameRoom {
     this.towers.push(tower);
   }
 
+  private handleTowerRelocation(hero: HeroRuntime, towerId: number, slotIndex: number): void {
+    if (this.runStatus !== "running" || hero.state !== "alive" || hero.hp <= 0) {
+      return;
+    }
+
+    if (!Number.isInteger(towerId) || towerId <= 0) {
+      return;
+    }
+
+    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= this.map.towerSlots.length) {
+      return;
+    }
+
+    const tower = this.towers.find((entry) => entry.id === towerId && entry.ownerId === hero.id);
+    if (!tower) {
+      return;
+    }
+
+    if (tower.slotIndex === slotIndex) {
+      return;
+    }
+
+    const occupied = this.towers.some((entry) => entry.slotIndex === slotIndex && entry.id !== tower.id);
+    if (occupied) {
+      return;
+    }
+
+    if (hero.gold < TOWER_RELOCATE_COST) {
+      return;
+    }
+
+    hero.gold -= TOWER_RELOCATE_COST;
+    const slot = this.map.towerSlots[slotIndex];
+    tower.slotIndex = slotIndex;
+    tower.x = slot.x;
+    tower.y = slot.y;
+    tower.cooldownLeftMs = Math.min(tower.cooldownLeftMs, tower.cooldownMs);
+  }
+
   private handleUpgradeChoice(playerId: string, upgradeId: string): void {
     const session = this.playersById.get(playerId);
     if (!session) {
@@ -339,6 +393,43 @@ export class GameRoom {
     hero.pendingUpgradeOptions = null;
 
     this.checkLevelUpsForHero(playerId, hero);
+  }
+
+  private handleUpgradeReroll(playerId: string): void {
+    const session = this.playersById.get(playerId);
+    if (!session) {
+      return;
+    }
+
+    const hero = session.hero;
+    if (this.runStatus !== "running" || hero.state !== "alive" || hero.hp <= 0) {
+      return;
+    }
+
+    const pending = hero.pendingUpgradeOptions;
+    if (!pending || pending.length === 0) {
+      return;
+    }
+
+    if (hero.rerollTokens <= 0) {
+      return;
+    }
+
+    hero.rerollTokens -= 1;
+    const previousOptionIds = new Set(pending.map((option) => option.id));
+    const nextOptions = this.generateRerolledOptions(hero, previousOptionIds);
+    if (nextOptions.length === 0) {
+      hero.pendingUpgradeOptions = pending;
+      hero.rerollTokens += 1;
+      return;
+    }
+
+    hero.pendingUpgradeOptions = nextOptions;
+    this.sendToPlayer(playerId, {
+      type: "upgradeOptions",
+      options: nextOptions,
+      rerollTokens: hero.rerollTokens,
+    });
   }
 
   private handleCastSkill(
@@ -423,6 +514,32 @@ export class GameRoom {
       }
       default:
         break;
+    }
+  }
+
+  private handleStartNextWave(playerId: string): void {
+    const session = this.playersById.get(playerId);
+    if (!session || this.runStatus !== "running") {
+      return;
+    }
+
+    if (session.hero.state === "dead") {
+      return;
+    }
+
+    const intermissionRemainingMs = this.waveSystem.intermissionRemainingMs;
+    const skipped = this.waveSystem.skipIntermission();
+    if (!skipped || intermissionRemainingMs <= 0) {
+      return;
+    }
+
+    const bonusGold = Math.max(1, Math.floor(intermissionRemainingMs / EARLY_WAVE_BONUS_INTERVAL_MS));
+    for (const teammate of this.playersById.values()) {
+      if (teammate.hero.state === "dead") {
+        continue;
+      }
+      teammate.hero.gold += bonusGold;
+      teammate.hero.totalGoldEarned += bonusGold;
     }
   }
 
@@ -780,6 +897,7 @@ export class GameRoom {
         this.sendToPlayer(playerId, {
           type: "upgradeOptions",
           options,
+          rerollTokens: hero.rerollTokens,
         });
       }
 
@@ -839,6 +957,36 @@ export class GameRoom {
           break;
       }
     }
+  }
+
+  private generateRerolledOptions(hero: HeroRuntime, previousOptionIds: Set<string>) {
+    let candidate = this.upgradeSystem.generateOptions(hero, this.rng);
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      candidate = this.upgradeSystem.generateOptions(hero, this.rng);
+      if (this.hasAnyOptionDifference(candidate, previousOptionIds)) {
+        return candidate;
+      }
+    }
+
+    return candidate;
+  }
+
+  private hasAnyOptionDifference(
+    candidate: { id: string }[],
+    previousOptionIds: Set<string>,
+  ): boolean {
+    if (candidate.length !== previousOptionIds.size) {
+      return true;
+    }
+
+    for (const option of candidate) {
+      if (!previousOptionIds.has(option.id)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private recalculateOwnedTowers(ownerId: string): void {
@@ -976,6 +1124,9 @@ export class GameRoom {
       map: this.map,
       wave: this.waveSystem.currentWave,
       totalWaves: MAX_WAVES,
+      waveState: this.waveSystem.waveState,
+      intermissionRemainingMs: this.waveSystem.intermissionRemainingMs,
+      remainingWaveSpawns: this.waveSystem.remainingWaveSpawns,
       runStatus: this.runStatus,
       baseHp: this.baseHp,
       baseMaxHp: this.baseMaxHp,
@@ -1003,6 +1154,7 @@ export class GameRoom {
       xp: hero.xp,
       nextLevelXp: hero.nextLevelXp,
       gold: hero.gold,
+      rerollTokens: hero.rerollTokens,
       maxTowers: hero.maxTowers,
       skills: this.toHeroSkills(hero),
       downedRemainingMs: hero.downedRemainingMs,

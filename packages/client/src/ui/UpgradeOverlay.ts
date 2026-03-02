@@ -9,7 +9,13 @@ import {
 export class UpgradeOverlay {
   constructor(private readonly root: HTMLElement) {}
 
-  show(options: UpgradeOption[], onPick: (upgradeId: string) => void, locale: Locale): void {
+  show(
+    options: UpgradeOption[],
+    onPick: (upgradeId: string) => void,
+    locale: Locale,
+    rerollTokens: number,
+    onReroll: () => void,
+  ): void {
     this.root.classList.remove("hidden");
 
     const panel = document.createElement("div");
@@ -53,12 +59,37 @@ export class UpgradeOverlay {
       grid.append(card);
     }
 
-    panel.append(title, subtitle, grid);
+    const actions = document.createElement("div");
+    actions.className = "upgrade-actions";
+
+    const tokensLabel = document.createElement("p");
+    tokensLabel.className = "upgrade-reroll-count";
+    tokensLabel.textContent = tr(locale, "reroll_tokens", { count: rerollTokens });
+
+    const rerollButton = document.createElement("button");
+    rerollButton.className = "upgrade-reroll-button";
+    rerollButton.type = "button";
+    rerollButton.disabled = rerollTokens <= 0;
+    rerollButton.textContent = tr(locale, "reroll_button");
+    rerollButton.addEventListener("click", () => {
+      if (rerollButton.disabled) {
+        return;
+      }
+      onReroll();
+    });
+
+    actions.append(tokensLabel, rerollButton);
+
+    panel.append(title, subtitle, grid, actions);
     this.root.replaceChildren(panel);
   }
 
   hide(): void {
     this.root.classList.add("hidden");
     this.root.replaceChildren();
+  }
+
+  isVisible(): boolean {
+    return !this.root.classList.contains("hidden");
   }
 }
