@@ -1,5 +1,10 @@
 import type { UpgradeOption } from "@pals-defence/shared";
-import { type Locale, tr } from "../i18n";
+import {
+  type Locale,
+  tr,
+  trUpgradeDescription,
+  trUpgradeName,
+} from "../i18n";
 
 export class UpgradeOverlay {
   constructor(private readonly root: HTMLElement) {}
@@ -21,21 +26,23 @@ export class UpgradeOverlay {
     grid.className = "upgrade-grid";
 
     for (const option of options) {
+      const localizedName = trUpgradeName(locale, option.id, option.name);
+      const localizedDescription = trUpgradeDescription(locale, option.id, option.description);
       const card = document.createElement("button");
       card.className = `upgrade-card rarity-${option.rarity}`;
       card.type = "button";
 
       const name = document.createElement("p");
       name.className = "upgrade-name";
-      name.textContent = option.name;
+      name.textContent = localizedName;
 
       const rarity = document.createElement("p");
       rarity.className = "upgrade-rarity";
-      rarity.textContent = option.rarity;
+      rarity.textContent = tr(locale, `rarity_${option.rarity}`);
 
       const description = document.createElement("p");
       description.className = "upgrade-description";
-      description.textContent = option.description;
+      description.textContent = localizedDescription;
 
       card.append(name, rarity, description);
       card.addEventListener("click", () => {

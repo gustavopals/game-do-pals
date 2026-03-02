@@ -8,7 +8,14 @@ import type {
 } from "@pals-defence/shared";
 import Phaser from "phaser";
 
-import { loadLocale, saveLocale, toggleLocale, tr, type Locale } from "../i18n";
+import {
+  loadLocale,
+  saveLocale,
+  toggleLocale,
+  tr,
+  trSkillName,
+  type Locale,
+} from "../i18n";
 import { GameClient } from "../network/GameClient";
 import { UpgradeOverlay } from "../ui/UpgradeOverlay";
 
@@ -25,6 +32,7 @@ const ENEMY_COLOR = 0xd45757;
 const BOSS_COLOR = 0x8f253d;
 const TITLE_FONT = '"Cinzel", "Palatino Linotype", serif';
 const BODY_FONT = '"Spectral", "Segoe UI", serif';
+const TERRAIN_TILE_SIZE = 16;
 
 type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd";
 
@@ -193,9 +201,7 @@ export class GameScene extends Phaser.Scene {
             const seconds = Math.ceil(localHero.downedRemainingMs / 1000);
             this.statusText.setText(tr(this.locale, "downed_hint", { seconds }));
           } else {
-            this.statusText.setText(
-              tr(this.locale, "control_hint", { tower: this.selectedTower.toUpperCase() }),
-            );
+            this.statusText.setText(this.getControlHintText());
           }
         }
       },
@@ -358,41 +364,9 @@ export class GameScene extends Phaser.Scene {
 
     this.graphics.fillGradientStyle(0x334734, 0x314332, 0x1d2a21, 0x19221c, 1);
     this.graphics.fillRect(0, 0, snapshot.map.width, snapshot.map.height);
-
-    const terrainPulse = 0.55 + Math.sin(this.time.now / 1200) * 0.45;
-    for (let i = 0; i < 8; i += 1) {
-      const x = 110 + i * 150;
-      const y = (i % 2 === 0 ? 150 : 540) + Math.sin((this.time.now + i * 300) / 900) * 18;
-      this.graphics.fillStyle(0x466a4d, 0.08 + terrainPulse * 0.03);
-      this.graphics.fillCircle(x, y, 72);
-    }
-
-    this.graphics.lineStyle(26, 0x3d3526, 0.68);
-    for (const path of snapshot.map.paths) {
-      for (let i = 0; i < path.length - 1; i += 1) {
-        const from = path[i];
-        const to = path[i + 1];
-        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
-      }
-    }
-
-    this.graphics.lineStyle(15, 0x7f6844, 0.94);
-    for (const path of snapshot.map.paths) {
-      for (let i = 0; i < path.length - 1; i += 1) {
-        const from = path[i];
-        const to = path[i + 1];
-        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
-      }
-    }
-
-    this.graphics.lineStyle(2, 0xe4cf95, 0.52);
-    for (const path of snapshot.map.paths) {
-      for (let i = 0; i < path.length - 1; i += 1) {
-        const from = path[i];
-        const to = path[i + 1];
-        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
-      }
-    }
+    this.drawPixelTerrain(snapshot.map.width, snapshot.map.height);
+    this.drawPathBands(snapshot.map.paths);
+    this.drawPathPebbles(snapshot.map.paths);
 
     const basePulse = 0.5 + Math.sin(this.time.now / 260) * 0.5;
     this.graphics.fillStyle(0x2c7f6a, 0.95);
@@ -503,6 +477,7 @@ export class GameScene extends Phaser.Scene {
     this.graphics.fillStyle(0x080907, 0.2);
     this.graphics.fillRect(0, 0, snapshot.map.width, 24);
     this.graphics.fillRect(0, snapshot.map.height - 24, snapshot.map.width, 24);
+    this.drawPixelVignette(snapshot.map.width, snapshot.map.height);
   }
 
   private drawTowerShape(typeId: TowerTypeId, x: number, y: number): void {
@@ -642,7 +617,7 @@ export class GameScene extends Phaser.Scene {
           towers: this.snapshot.towers.filter((tower) => tower.ownerId === hero.id).length,
           maxTowers: hero.maxTowers,
         })
-      : "Hero not joined yet";
+      : tr(this.locale, "hero_not_joined");
     const boss = this.snapshot.enemies.find((enemy) => enemy.isBoss);
     const bossInfo = boss ? tr(this.locale, "boss_phase", { phase: boss.bossPhase }) : "";
 
@@ -650,8 +625,9 @@ export class GameScene extends Phaser.Scene {
       ? hero.skills
           .map((skill) => {
             const seconds = Math.ceil(skill.cooldownRemainingMs / 1000);
-            const status = seconds > 0 ? `${seconds}s` : "READY";
-            return `[${skill.hotkey}] ${skill.name}: ${status}`;
+            const status = seconds > 0 ? `${seconds}s` : tr(this.locale, "skill_ready");
+            const skillName = trSkillName(this.locale, skill.id, skill.name);
+            return `[${skill.hotkey}] ${skillName}: ${status}`;
           })
           .join(" | ")
       : "";
@@ -766,7 +742,7 @@ export class GameScene extends Phaser.Scene {
   private renderRunEndScreen(): void {
     this.addScreenTitle(tr(this.locale, "run_end_title"));
 
-    const runStatus = this.runEndSummary?.runStatus.toUpperCase() ?? "UNKNOWN";
+    const runStatus = this.getRunStatusLabel(this.runEndSummary?.runStatus);
     const wave = this.runEndSummary?.reachedWave ?? 0;
     const gold = this.runEndSummary?.goldEarned ?? 0;
     const essence = this.runEndProgression?.totalEssence ?? 0;
@@ -964,9 +940,7 @@ export class GameScene extends Phaser.Scene {
           }),
         );
       } else {
-        this.statusText.setText(
-          tr(this.locale, "control_hint", { tower: this.selectedTower.toUpperCase() }),
-        );
+        this.statusText.setText(this.getControlHintText());
       }
     }
   }
@@ -981,6 +955,137 @@ export class GameScene extends Phaser.Scene {
       default:
         return tr(this.locale, "difficulty_normal");
     }
+  }
+
+  private getTowerLabel(towerType: TowerTypeId): string {
+    switch (towerType) {
+      case "defender":
+        return tr(this.locale, "tower_defender");
+      case "archer":
+        return tr(this.locale, "tower_archer");
+      case "mage":
+      default:
+        return tr(this.locale, "tower_mage");
+    }
+  }
+
+  private getControlHintText(): string {
+    return tr(this.locale, "control_hint", {
+      tower: this.getTowerLabel(this.selectedTower),
+      skillQ: trSkillName(this.locale, "arcaneBolt", "Arcane Bolt"),
+      skillE: trSkillName(this.locale, "aetherPulse", "Aether Pulse"),
+    });
+  }
+
+  private getRunStatusLabel(runStatus: RunSummary["runStatus"] | undefined): string {
+    if (runStatus === "won") {
+      return tr(this.locale, "run_status_won");
+    }
+    if (runStatus === "lost") {
+      return tr(this.locale, "run_status_lost");
+    }
+    return tr(this.locale, "run_status_unknown");
+  }
+
+  private drawPixelTerrain(width: number, height: number): void {
+    for (let y = 0; y < height; y += TERRAIN_TILE_SIZE) {
+      for (let x = 0; x < width; x += TERRAIN_TILE_SIZE) {
+        const noise = this.tileNoise(
+          Math.floor(x / TERRAIN_TILE_SIZE),
+          Math.floor(y / TERRAIN_TILE_SIZE),
+        );
+
+        let tileColor = 0x2a402f;
+        if (noise > 0.76) {
+          tileColor = 0x3f5f43;
+        } else if (noise > 0.52) {
+          tileColor = 0x344f3a;
+        } else if (noise < 0.18) {
+          tileColor = 0x213329;
+        }
+
+        this.graphics.fillStyle(tileColor, 0.2 + noise * 0.14);
+        this.graphics.fillRect(x, y, TERRAIN_TILE_SIZE, TERRAIN_TILE_SIZE);
+
+        if (noise > 0.92) {
+          this.graphics.fillStyle(0xa5cf83, 0.33);
+          this.graphics.fillRect(x + 5, y + 4, 3, 3);
+        } else if (noise < 0.07) {
+          this.graphics.fillStyle(0x19261f, 0.38);
+          this.graphics.fillRect(x + 4, y + 5, 4, 4);
+        }
+      }
+    }
+  }
+
+  private drawPathBands(paths: GameSnapshot["map"]["paths"]): void {
+    this.graphics.lineStyle(28, 0x3d3526, 0.72);
+    for (const path of paths) {
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const from = path[i];
+        const to = path[i + 1];
+        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
+      }
+    }
+
+    this.graphics.lineStyle(16, 0x7f6844, 0.94);
+    for (const path of paths) {
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const from = path[i];
+        const to = path[i + 1];
+        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
+      }
+    }
+
+    this.graphics.lineStyle(2, 0xe4cf95, 0.5);
+    for (const path of paths) {
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const from = path[i];
+        const to = path[i + 1];
+        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
+      }
+    }
+  }
+
+  private drawPathPebbles(paths: GameSnapshot["map"]["paths"]): void {
+    for (const path of paths) {
+      for (let i = 0; i < path.length - 1; i += 1) {
+        const from = path[i];
+        const to = path[i + 1];
+        const distance = Math.hypot(to.x - from.x, to.y - from.y);
+        const steps = Math.max(1, Math.round(distance / 12));
+
+        for (let step = 0; step <= steps; step += 1) {
+          const progress = step / steps;
+          const px = Phaser.Math.Linear(from.x, to.x, progress);
+          const py = Phaser.Math.Linear(from.y, to.y, progress);
+          const noise = this.tileNoise(Math.floor(px / 12), Math.floor(py / 12));
+          const size = noise > 0.64 ? 4 : 3;
+          const color = noise > 0.72 ? 0xd2ba84 : 0x9f8158;
+          const alpha = noise > 0.72 ? 0.28 : 0.2;
+          this.graphics.fillStyle(color, alpha);
+          this.graphics.fillRect(Math.round(px - size / 2), Math.round(py - size / 2), size, size);
+        }
+      }
+    }
+  }
+
+  private drawPixelVignette(width: number, height: number): void {
+    this.graphics.fillStyle(0x050705, 0.12);
+    for (let y = 0; y < height; y += TERRAIN_TILE_SIZE * 2) {
+      this.graphics.fillRect(0, y, width, 1);
+    }
+
+    this.graphics.fillStyle(0x070907, 0.22);
+    this.graphics.fillRect(0, 0, width, 20);
+    this.graphics.fillRect(0, height - 20, width, 20);
+  }
+
+  private tileNoise(x: number, y: number): number {
+    const seed = x * 374761393 + y * 668265263;
+    let mixed = (seed ^ (seed >> 13)) * 1274126177;
+    mixed ^= mixed >> 16;
+    return (mixed >>> 0) / 4294967295;
   }
 
   private createAmbientMotes(count: number): AmbientMote[] {

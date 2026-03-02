@@ -21,7 +21,8 @@ Monorepo inicial para um roguelite tower defense 2D com:
 - habilidades inimigas: elite burst + boss em 3 fases (summon/shockwave)
 - 1 mapa
 - visual polish no cliente (menus animados, HUD estilizada, overlay de upgrade revisado)
-- suporte inicial de idioma no cliente (`pt`/`en`) com toggle em tempo real
+- suporte de idioma no cliente (`pt`/`en`) com toggle em tempo real e textos de gameplay localizados (skills/upgrades/raridade/status)
+- pass de direcao de arte 2D pixel top-down (terreno em tiles, trilhas com textura e contraste retro)
 - Progressao basica entre runs (`packages/server/data/progression.json`)
 
 ## Rodando localmente
