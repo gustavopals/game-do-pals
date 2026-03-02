@@ -4,7 +4,7 @@ import {
   type UpgradeDefinition,
   type UpgradeOption,
   SeededRng,
-} from "@aetherfall/shared";
+} from "@pals-defence/shared";
 
 import type { HeroRuntime } from "../runtime.js";
 

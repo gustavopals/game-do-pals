@@ -1,9 +1,10 @@
-import type { EnemyRuntime, HeroRuntime, TowerRuntime } from "../runtime.js";
+import type { EnemyRuntime, HeroRuntime, ProjectileTraceSeed, TowerRuntime } from "../runtime.js";
 
 const MAGE_SPLASH_RADIUS = 56;
 
 export interface CombatResult {
   defeatedEnemyIds: Set<number>;
+  projectileTraces: ProjectileTraceSeed[];
 }
 
 export class CombatSystem {
@@ -13,6 +14,8 @@ export class CombatSystem {
     towers: TowerRuntime[],
     enemies: EnemyRuntime[],
   ): CombatResult {
+    const projectileTraces: ProjectileTraceSeed[] = [];
+
     for (const hero of heroes) {
       hero.attackCooldownLeftMs = Math.max(0, hero.attackCooldownLeftMs - deltaMs);
       if (hero.attackCooldownLeftMs > 0) {
@@ -25,6 +28,14 @@ export class CombatSystem {
       }
 
       this.applyDamage(target, hero.attackDamage);
+      projectileTraces.push({
+        kind: "hero_basic",
+        from: { x: hero.x, y: hero.y },
+        to: { x: target.x, y: target.y },
+        durationMs: 170,
+        radius: 3,
+        color: 0xf3d89e,
+      });
       hero.attackCooldownLeftMs = hero.attackCooldownMs;
     }
 
@@ -54,6 +65,15 @@ export class CombatSystem {
         this.applyDamage(target, tower.damage);
       }
 
+      projectileTraces.push({
+        kind: this.mapTowerTraceKind(tower.typeId),
+        from: { x: tower.x, y: tower.y },
+        to: { x: target.x, y: target.y },
+        durationMs: tower.typeId === "archer" ? 220 : 200,
+        radius: tower.typeId === "defender" ? 4 : 3,
+        color: this.mapTowerTraceColor(tower.typeId),
+      });
+
       tower.cooldownLeftMs = tower.cooldownMs;
     }
 
@@ -64,7 +84,7 @@ export class CombatSystem {
       }
     }
 
-    return { defeatedEnemyIds };
+    return { defeatedEnemyIds, projectileTraces };
   }
 
   private findNearestEnemy(
@@ -97,5 +117,29 @@ export class CombatSystem {
 
   private applyDamage(enemy: EnemyRuntime, damage: number): void {
     enemy.hp = Math.max(0, enemy.hp - damage);
+  }
+
+  private mapTowerTraceKind(towerType: TowerRuntime["typeId"]): ProjectileTraceSeed["kind"] {
+    switch (towerType) {
+      case "defender":
+        return "tower_defender";
+      case "archer":
+        return "tower_archer";
+      case "mage":
+      default:
+        return "tower_mage";
+    }
+  }
+
+  private mapTowerTraceColor(towerType: TowerRuntime["typeId"]): number {
+    switch (towerType) {
+      case "defender":
+        return 0x8aa86b;
+      case "archer":
+        return 0xbee96f;
+      case "mage":
+      default:
+        return 0x6fdcf2;
+    }
   }
 }

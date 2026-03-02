@@ -41,7 +41,7 @@ Main gameplay cycle:
 
 # 3. SETTING & LORE
 
-The world of **Aetherfall** once connected multiple kingdoms through magical monoliths similar to ancient rune stones.
+The world of **Pals Defence** once connected multiple kingdoms through magical monoliths similar to ancient rune stones.
 
 After a catastrophic event known as:
 

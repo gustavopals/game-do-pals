@@ -1,4 +1,4 @@
-# Echoes of Aetherfall - MVP Skeleton
+# Pals Defence - MVP Skeleton
 
 Monorepo inicial para um roguelite tower defense 2D com:
 
@@ -35,7 +35,7 @@ Cliente Vite padrao: `http://localhost:5173`
 Se quiser mudar a URL do servidor no cliente:
 
 ```bash
-VITE_WS_URL=ws://localhost:3000 npm --workspace @aetherfall/client run dev
+VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 ```
 
 ## Controles
@@ -43,11 +43,13 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @aetherfall/client run dev
 - `WASD`: mover heroi
 - `1`, `2`, `3`: selecionar tipo de torre
 - Clique em um slot: colocar torre
+- `Q`: Arcane Bolt (skill ativa)
+- `E`: Aether Pulse (skill ativa)
 - Escolha de upgrade: clique no card
 
 ## Proximos incrementos naturais
 
-- dano de inimigo em heroi, skills ativas e projectiles visuais
+- dano de inimigo em heroi e habilidades ativas adicionais
 - sistema de status (poison, chain lightning, crit) real
 - ECS completo em runtime (hoje esta como base de arquitetura)
 - salas/matches multiplas e sincronizacao 2-4 jogadores

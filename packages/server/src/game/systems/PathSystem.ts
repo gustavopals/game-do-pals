@@ -1,4 +1,4 @@
-import type { MapConfig } from "@aetherfall/shared";
+import type { MapConfig } from "@pals-defence/shared";
 
 import type { EnemyRuntime } from "../runtime.js";
 

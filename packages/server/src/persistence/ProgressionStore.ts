@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { PlayerProgression, RunSummary } from "@aetherfall/shared";
+import type { PlayerProgression, RunSummary } from "@pals-defence/shared";
 
 interface ProgressionState {
   players: Record<string, PlayerProgression>;

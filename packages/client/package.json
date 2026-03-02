@@ -1,5 +1,5 @@
 {
-  "name": "@aetherfall/client",
+  "name": "@pals-defence/client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@aetherfall/shared": "0.1.0",
+    "@pals-defence/shared": "0.1.0",
     "phaser": "^3.90.0"
   },
   "devDependencies": {

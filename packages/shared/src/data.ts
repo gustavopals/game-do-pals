@@ -88,7 +88,7 @@ export const ENEMY_DEFINITIONS: Record<string, EnemyDefinition> = {
   },
   boss: {
     id: "boss",
-    name: "Aetherfall Behemoth",
+    name: "Pals Defence Behemoth",
     maxHp: 480,
     speed: 36,
     rewardGold: 120,

@@ -1,9 +1,11 @@
 import type {
   EnemySnapshot,
   HeroSnapshot,
+  HeroSkillId,
+  ProjectileTrace,
   TowerSnapshot,
   UpgradeOption,
-} from "@aetherfall/shared";
+} from "@pals-defence/shared";
 
 export interface HeroRuntime extends HeroSnapshot {
   inputDx: number;
@@ -16,6 +18,7 @@ export interface HeroRuntime extends HeroSnapshot {
   pendingUpgradeOptions: UpgradeOption[] | null;
   ownedUpgradeIds: Set<string>;
   totalGoldEarned: number;
+  skillCooldownsMs: Record<HeroSkillId, number>;
 }
 
 export interface TowerRuntime extends TowerSnapshot {
@@ -27,3 +30,5 @@ export interface EnemyRuntime extends EnemySnapshot {
   pathId: number;
   waypointIndex: number;
 }
+
+export type ProjectileTraceSeed = Omit<ProjectileTrace, "id" | "createdAtMs">;

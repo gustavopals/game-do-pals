@@ -1,13 +1,13 @@
 {
-  "name": "echoes-of-aetherfall",
+  "name": "pals-defence",
   "private": true,
   "version": "0.1.0",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "dev:server": "npm --workspace @aetherfall/server run dev",
-    "dev:client": "npm --workspace @aetherfall/client run dev",
+    "dev:server": "npm --workspace @pals-defence/server run dev",
+    "dev:client": "npm --workspace @pals-defence/client run dev",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   }

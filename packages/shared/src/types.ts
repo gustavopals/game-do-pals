@@ -8,6 +8,8 @@ export type EnemyTypeId =
   | "elite"
   | "boss";
 
+export type HeroSkillId = "arcaneBolt" | "aetherPulse";
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -40,6 +42,7 @@ export interface HeroSnapshot {
   nextLevelXp: number;
   gold: number;
   maxTowers: number;
+  skills: HeroSkillSnapshot[];
 }
 
 export interface TowerSnapshot {
@@ -80,6 +83,33 @@ export interface GameSnapshot {
   heroes: HeroSnapshot[];
   towers: TowerSnapshot[];
   enemies: EnemySnapshot[];
+  projectileTraces: ProjectileTrace[];
+}
+
+export interface HeroSkillSnapshot {
+  id: HeroSkillId;
+  name: string;
+  description: string;
+  hotkey: "Q" | "E";
+  cooldownMs: number;
+  cooldownRemainingMs: number;
+}
+
+export interface ProjectileTrace {
+  id: number;
+  kind:
+    | "hero_basic"
+    | "tower_defender"
+    | "tower_archer"
+    | "tower_mage"
+    | "skill_arcane_bolt"
+    | "skill_pulse_shard";
+  from: Vec2;
+  to: Vec2;
+  durationMs: number;
+  radius: number;
+  color: number;
+  createdAtMs: number;
 }
 
 export interface TowerDefinition {
@@ -164,6 +194,12 @@ export type ClientMessage =
   | {
       type: "chooseUpgrade";
       upgradeId: string;
+    }
+  | {
+      type: "castSkill";
+      skillId: HeroSkillId;
+      targetX: number;
+      targetY: number;
     };
 
 export type ServerMessage =

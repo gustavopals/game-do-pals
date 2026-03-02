@@ -17,16 +17,24 @@ import {
   type EnemySnapshot,
   type GameSnapshot,
   type HeroSnapshot,
+  type HeroSkillId,
+  type HeroSkillSnapshot,
+  type ProjectileTrace,
   type RunSummary,
   type ServerMessage,
   type TowerSnapshot,
   type UpgradeDefinition,
-} from "@aetherfall/shared";
-import { SeededRng } from "@aetherfall/shared";
+} from "@pals-defence/shared";
+import { SeededRng } from "@pals-defence/shared";
 import WebSocket, { type RawData } from "ws";
 
 import type { ProgressionStore } from "../persistence/ProgressionStore.js";
-import type { EnemyRuntime, HeroRuntime, TowerRuntime } from "./runtime.js";
+import type {
+  EnemyRuntime,
+  HeroRuntime,
+  ProjectileTraceSeed,
+  TowerRuntime,
+} from "./runtime.js";
 import { CombatSystem } from "./systems/CombatSystem.js";
 import { PathSystem } from "./systems/PathSystem.js";
 import { UpgradeSystem } from "./systems/UpgradeSystem.js";
@@ -43,6 +51,31 @@ interface GameRoomOptions {
   progressionStore: ProgressionStore;
 }
 
+interface HeroSkillDefinition {
+  id: HeroSkillId;
+  name: string;
+  description: string;
+  hotkey: "Q" | "E";
+  cooldownMs: number;
+}
+
+const HERO_SKILL_DEFINITIONS: Record<HeroSkillId, HeroSkillDefinition> = {
+  arcaneBolt: {
+    id: "arcaneBolt",
+    name: "Arcane Bolt",
+    description: "Dispara um projétil mágico potente no alvo próximo ao cursor.",
+    hotkey: "Q",
+    cooldownMs: 5000,
+  },
+  aetherPulse: {
+    id: "aetherPulse",
+    name: "Aether Pulse",
+    description: "Dispara fragmentos energéticos em até 4 inimigos próximos.",
+    hotkey: "E",
+    cooldownMs: 9000,
+  },
+};
+
 export class GameRoom {
   private readonly map = DEFAULT_MAP;
   private readonly progressionStore: ProgressionStore;
@@ -55,9 +88,11 @@ export class GameRoom {
 
   private nextTowerId = 1;
   private nextEnemyId = 1;
+  private nextProjectileTraceId = 1;
 
   private tick = 0;
   private elapsedMs = 0;
+  private frameProjectileTraces: ProjectileTrace[] = [];
 
   private readonly baseMaxHp = BASE_MAX_HP;
   private baseHp = BASE_MAX_HP;
@@ -135,6 +170,10 @@ export class GameRoom {
       }
       case "chooseUpgrade": {
         this.handleUpgradeChoice(playerId, payload.upgradeId);
+        break;
+      }
+      case "castSkill": {
+        this.handleCastSkill(session.hero, payload.skillId, payload.targetX, payload.targetY);
         break;
       }
       default:
@@ -278,6 +317,83 @@ export class GameRoom {
     this.checkLevelUpsForHero(playerId, hero);
   }
 
+  private handleCastSkill(
+    hero: HeroRuntime,
+    skillId: HeroSkillId,
+    targetX: number,
+    targetY: number,
+  ): void {
+    if (this.runStatus !== "running" || hero.pendingUpgradeOptions) {
+      return;
+    }
+
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      return;
+    }
+
+    const definition = HERO_SKILL_DEFINITIONS[skillId];
+    if (!definition) {
+      return;
+    }
+
+    if (hero.skillCooldownsMs[skillId] > 0) {
+      return;
+    }
+
+    const clampedX = this.clamp(targetX, 0, this.map.width);
+    const clampedY = this.clamp(targetY, 0, this.map.height);
+
+    switch (skillId) {
+      case "arcaneBolt": {
+        const target =
+          this.findNearestEnemyFromPoint(clampedX, clampedY, 260) ??
+          this.findNearestEnemyFromPoint(hero.x, hero.y, Math.max(hero.attackRange * 2, 180));
+        if (!target) {
+          return;
+        }
+
+        const damage = Math.max(12, Math.round(hero.attackDamage * 4.6));
+        target.hp = Math.max(0, target.hp - damage);
+
+        this.pushProjectileTrace({
+          kind: "skill_arcane_bolt",
+          from: { x: hero.x, y: hero.y },
+          to: { x: target.x, y: target.y },
+          durationMs: 300,
+          radius: 6,
+          color: 0xc187ff,
+        });
+
+        hero.skillCooldownsMs.arcaneBolt = definition.cooldownMs;
+        break;
+      }
+      case "aetherPulse": {
+        const targets = this.findNearestEnemies(hero.x, hero.y, 250, 4);
+        if (targets.length === 0) {
+          return;
+        }
+
+        const damage = Math.max(8, Math.round(hero.attackDamage * 2.15));
+        for (const target of targets) {
+          target.hp = Math.max(0, target.hp - damage);
+          this.pushProjectileTrace({
+            kind: "skill_pulse_shard",
+            from: { x: hero.x, y: hero.y },
+            to: { x: target.x, y: target.y },
+            durationMs: 240,
+            radius: 4,
+            color: 0x69f2dc,
+          });
+        }
+
+        hero.skillCooldownsMs.aetherPulse = definition.cooldownMs;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   private update(deltaMs: number): void {
     if (this.playersById.size === 0) {
       return;
@@ -287,6 +403,7 @@ export class GameRoom {
     this.elapsedMs += deltaMs;
 
     if (this.runStatus === "running") {
+      this.updateHeroCooldowns(deltaMs);
       this.updateHeroMovement(deltaMs);
 
       const spawns = this.waveSystem.update(
@@ -316,6 +433,7 @@ export class GameRoom {
 
       const heroes = [...this.playersById.values()].map((session) => session.hero);
       const combatResult = this.combatSystem.update(deltaMs, heroes, this.towers, this.enemies);
+      this.pushProjectileTraceBatch(combatResult.projectileTraces);
       this.handleEnemyDefeats(combatResult.defeatedEnemyIds);
 
       for (const [playerId, session] of this.playersById.entries()) {
@@ -330,6 +448,7 @@ export class GameRoom {
     }
 
     this.broadcastState();
+    this.frameProjectileTraces = [];
   }
 
   private updateHeroMovement(deltaMs: number): void {
@@ -348,6 +467,15 @@ export class GameRoom {
 
       hero.x = this.clamp(hero.x + nx * hero.moveSpeed * dt, 0, this.map.width);
       hero.y = this.clamp(hero.y + ny * hero.moveSpeed * dt, 0, this.map.height);
+    }
+  }
+
+  private updateHeroCooldowns(deltaMs: number): void {
+    for (const session of this.playersById.values()) {
+      const hero = session.hero;
+      for (const skillId of Object.keys(hero.skillCooldownsMs) as HeroSkillId[]) {
+        hero.skillCooldownsMs[skillId] = Math.max(0, hero.skillCooldownsMs[skillId] - deltaMs);
+      }
     }
   }
 
@@ -374,6 +502,60 @@ export class GameRoom {
 
     this.nextEnemyId += 1;
     this.enemies.push(enemy);
+  }
+
+  private findNearestEnemyFromPoint(
+    x: number,
+    y: number,
+    maxRange: number,
+  ): EnemyRuntime | undefined {
+    let best: EnemyRuntime | undefined;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const enemy of this.enemies) {
+      if (enemy.hp <= 0) {
+        continue;
+      }
+
+      const distance = Math.hypot(enemy.x - x, enemy.y - y);
+      if (distance > maxRange) {
+        continue;
+      }
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = enemy;
+      }
+    }
+
+    return best;
+  }
+
+  private findNearestEnemies(
+    x: number,
+    y: number,
+    maxRange: number,
+    count: number,
+  ): EnemyRuntime[] {
+    return this.enemies
+      .filter((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) <= maxRange)
+      .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))
+      .slice(0, count);
+  }
+
+  private pushProjectileTrace(trace: ProjectileTraceSeed): void {
+    this.frameProjectileTraces.push({
+      ...trace,
+      id: this.nextProjectileTraceId,
+      createdAtMs: this.elapsedMs,
+    });
+    this.nextProjectileTraceId += 1;
+  }
+
+  private pushProjectileTraceBatch(traces: ProjectileTraceSeed[]): void {
+    for (const trace of traces) {
+      this.pushProjectileTrace(trace);
+    }
   }
 
   private handleEnemyDefeats(defeatedEnemyIds: Set<number>): void {
@@ -532,6 +714,7 @@ export class GameRoom {
     this.tick = 0;
     this.elapsedMs = 0;
     this.baseHp = this.baseMaxHp;
+    this.frameProjectileTraces = [];
     this.runStatus = "running";
 
     for (const [playerId, session] of this.playersById.entries()) {
@@ -558,6 +741,7 @@ export class GameRoom {
       nextLevelXp: this.getNextLevelXp(1),
       gold: 90,
       maxTowers: INITIAL_TOWER_CAP,
+      skills: [],
       inputDx: 0,
       inputDy: 0,
       attackCooldownLeftMs: 200,
@@ -568,6 +752,10 @@ export class GameRoom {
       pendingUpgradeOptions: null,
       ownedUpgradeIds: new Set<string>(),
       totalGoldEarned: 0,
+      skillCooldownsMs: {
+        arcaneBolt: 0,
+        aetherPulse: 0,
+      },
     };
   }
 
@@ -589,6 +777,7 @@ export class GameRoom {
       heroes: [...this.playersById.values()].map((session) => this.toHeroSnapshot(session.hero)),
       towers: this.towers.map((tower) => this.toTowerSnapshot(tower)),
       enemies: this.enemies.map((enemy) => this.toEnemySnapshot(enemy)),
+      projectileTraces: this.frameProjectileTraces,
     };
   }
 
@@ -609,7 +798,22 @@ export class GameRoom {
       nextLevelXp: hero.nextLevelXp,
       gold: hero.gold,
       maxTowers: hero.maxTowers,
+      skills: this.toHeroSkills(hero),
     };
+  }
+
+  private toHeroSkills(hero: HeroRuntime): HeroSkillSnapshot[] {
+    return (Object.keys(HERO_SKILL_DEFINITIONS) as HeroSkillId[]).map((skillId) => {
+      const definition = HERO_SKILL_DEFINITIONS[skillId];
+      return {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        hotkey: definition.hotkey,
+        cooldownMs: definition.cooldownMs,
+        cooldownRemainingMs: hero.skillCooldownsMs[definition.id],
+      };
+    });
   }
 
   private toTowerSnapshot(tower: TowerRuntime): TowerSnapshot {

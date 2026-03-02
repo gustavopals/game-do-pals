@@ -1,4 +1,4 @@
-import type { GameSnapshot, TowerTypeId } from "@aetherfall/shared";
+import type { GameSnapshot, ProjectileTrace, TowerTypeId } from "@pals-defence/shared";
 import Phaser from "phaser";
 
 import { GameClient } from "../network/GameClient";
@@ -14,6 +14,19 @@ const HERO_COLOR = 0xeadb9b;
 const ENEMY_COLOR = 0xd45757;
 const BOSS_COLOR = 0x8f253d;
 
+interface ActiveProjectile {
+  id: number;
+  kind: ProjectileTrace["kind"];
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  elapsedMs: number;
+  durationMs: number;
+  radius: number;
+  color: number;
+}
+
 export class GameScene extends Phaser.Scene {
   private snapshot: GameSnapshot | null = null;
   private graphics!: Phaser.GameObjects.Graphics;
@@ -24,12 +37,19 @@ export class GameScene extends Phaser.Scene {
   private selectedTower: TowerTypeId = "defender";
 
   private inputSendAccumulatorMs = 0;
+  private pointerWorldX = 640;
+  private pointerWorldY = 360;
+
+  private latestProjectileTraceId = 0;
+  private projectiles: ActiveProjectile[] = [];
 
   private keys!: {
     w: Phaser.Input.Keyboard.Key;
     a: Phaser.Input.Keyboard.Key;
     s: Phaser.Input.Keyboard.Key;
     d: Phaser.Input.Keyboard.Key;
+    q: Phaser.Input.Keyboard.Key;
+    e: Phaser.Input.Keyboard.Key;
     one: Phaser.Input.Keyboard.Key;
     two: Phaser.Input.Keyboard.Key;
     three: Phaser.Input.Keyboard.Key;
@@ -67,12 +87,21 @@ export class GameScene extends Phaser.Scene {
       a: Phaser.Input.Keyboard.KeyCodes.A,
       s: Phaser.Input.Keyboard.KeyCodes.S,
       d: Phaser.Input.Keyboard.KeyCodes.D,
+      q: Phaser.Input.Keyboard.KeyCodes.Q,
+      e: Phaser.Input.Keyboard.KeyCodes.E,
       one: Phaser.Input.Keyboard.KeyCodes.ONE,
       two: Phaser.Input.Keyboard.KeyCodes.TWO,
       three: Phaser.Input.Keyboard.KeyCodes.THREE,
     }) as GameScene["keys"];
 
+    this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+      this.pointerWorldX = pointer.worldX;
+      this.pointerWorldY = pointer.worldY;
+    });
+
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      this.pointerWorldX = pointer.worldX;
+      this.pointerWorldY = pointer.worldY;
       this.tryPlaceTower(pointer.worldX, pointer.worldY);
     });
 
@@ -82,10 +111,11 @@ export class GameScene extends Phaser.Scene {
       },
       onState: (snapshot) => {
         this.snapshot = snapshot;
+        this.consumeProjectileTraces(snapshot.projectileTraces);
 
         if (snapshot.runStatus === "running") {
           this.statusText.setText(
-            `Tower [1] Defender [2] Archer [3] Mage | Selected: ${this.selectedTower.toUpperCase()} | Click on a slot to place`,
+            `Pals Defence | Tower [1][2][3] ${this.selectedTower.toUpperCase()} | Skill [Q] Arcane Bolt [E] Aether Pulse | Click slot to place tower`,
           );
         }
       },
@@ -96,6 +126,7 @@ export class GameScene extends Phaser.Scene {
       },
       onRunEnded: (summary, progression) => {
         this.upgradeOverlay.hide();
+        this.projectiles = [];
         this.statusText.setText(
           `Run ${summary.runStatus.toUpperCase()} | Wave ${summary.reachedWave} | Gold ${summary.goldEarned} | Essence ${progression.totalEssence}`,
         );
@@ -110,6 +141,7 @@ export class GameScene extends Phaser.Scene {
 
   update(_: number, delta: number): void {
     this.handleInput(delta);
+    this.updateProjectiles(delta);
     this.drawWorld();
     this.updateHud();
   }
@@ -125,6 +157,13 @@ export class GameScene extends Phaser.Scene {
       this.selectedTower = "archer";
     } else if (Phaser.Input.Keyboard.JustDown(this.keys.three)) {
       this.selectedTower = "mage";
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.keys.q)) {
+      this.client.castSkill("arcaneBolt", this.pointerWorldX, this.pointerWorldY);
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.e)) {
+      this.client.castSkill("aetherPulse", this.pointerWorldX, this.pointerWorldY);
     }
 
     const dx = Number(this.keys.d.isDown) - Number(this.keys.a.isDown);
@@ -168,6 +207,38 @@ export class GameScene extends Phaser.Scene {
     }
 
     return bestDistance <= 32 ? bestIndex : -1;
+  }
+
+  private consumeProjectileTraces(traces: ProjectileTrace[]): void {
+    for (const trace of traces) {
+      if (trace.id <= this.latestProjectileTraceId) {
+        continue;
+      }
+
+      this.latestProjectileTraceId = trace.id;
+      this.projectiles.push({
+        id: trace.id,
+        kind: trace.kind,
+        fromX: trace.from.x,
+        fromY: trace.from.y,
+        toX: trace.to.x,
+        toY: trace.to.y,
+        elapsedMs: 0,
+        durationMs: trace.durationMs,
+        radius: trace.radius,
+        color: trace.color,
+      });
+    }
+  }
+
+  private updateProjectiles(deltaMs: number): void {
+    for (const projectile of this.projectiles) {
+      projectile.elapsedMs += deltaMs;
+    }
+
+    this.projectiles = this.projectiles.filter(
+      (projectile) => projectile.elapsedMs < projectile.durationMs,
+    );
   }
 
   private drawWorld(): void {
@@ -236,6 +307,35 @@ export class GameScene extends Phaser.Scene {
       this.graphics.lineStyle(2, isLocalHero ? 0xfaf3cc : 0xd7d7d7, 1);
       this.graphics.strokeCircle(hero.x, hero.y, 11);
     }
+
+    this.drawProjectiles();
+  }
+
+  private drawProjectiles(): void {
+    for (const projectile of this.projectiles) {
+      const progress = Phaser.Math.Clamp(projectile.elapsedMs / projectile.durationMs, 0, 1);
+      const previousProgress = Phaser.Math.Clamp(
+        (projectile.elapsedMs - 35) / projectile.durationMs,
+        0,
+        1,
+      );
+
+      const x = Phaser.Math.Linear(projectile.fromX, projectile.toX, progress);
+      const y = Phaser.Math.Linear(projectile.fromY, projectile.toY, progress);
+
+      const previousX = Phaser.Math.Linear(projectile.fromX, projectile.toX, previousProgress);
+      const previousY = Phaser.Math.Linear(projectile.fromY, projectile.toY, previousProgress);
+
+      this.graphics.lineStyle(Math.max(1, projectile.radius - 1), projectile.color, 0.5);
+      this.graphics.lineBetween(previousX, previousY, x, y);
+      this.graphics.fillStyle(projectile.color, 0.95);
+      this.graphics.fillCircle(x, y, projectile.radius);
+
+      if (projectile.kind === "skill_arcane_bolt") {
+        this.graphics.lineStyle(1.5, 0xffffff, 0.45);
+        this.graphics.strokeCircle(x, y, projectile.radius + 2);
+      }
+    }
   }
 
   private updateHud(): void {
@@ -249,10 +349,21 @@ export class GameScene extends Phaser.Scene {
       ? `HP ${hero.hp}/${hero.maxHp} | Gold ${hero.gold} | Lv ${hero.level} | XP ${hero.xp}/${hero.nextLevelXp} | Towers ${this.snapshot.towers.filter((tower) => tower.ownerId === hero.id).length}/${hero.maxTowers}`
       : "Hero not joined yet";
 
+    const skillsInfo = hero
+      ? hero.skills
+          .map((skill) => {
+            const seconds = Math.ceil(skill.cooldownRemainingMs / 1000);
+            const status = seconds > 0 ? `${seconds}s` : "READY";
+            return `[${skill.hotkey}] ${skill.name}: ${status}`;
+          })
+          .join(" | ")
+      : "";
+
     this.hudText.setText(
       [
         `Wave ${this.snapshot.wave}/${this.snapshot.totalWaves} | Base ${this.snapshot.baseHp}/${this.snapshot.baseMaxHp} | Enemies ${this.snapshot.enemies.length}`,
         heroInfo,
+        skillsInfo,
       ].join("\n"),
     );
   }

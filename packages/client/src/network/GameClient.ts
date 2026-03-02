@@ -1,12 +1,13 @@
 import type {
   ClientMessage,
   GameSnapshot,
+  HeroSkillId,
   PlayerProgression,
   RunSummary,
   ServerMessage,
   TowerTypeId,
   UpgradeOption,
-} from "@aetherfall/shared";
+} from "@pals-defence/shared";
 
 interface ClientHandlers {
   onConnected: (playerId: string) => void;
@@ -16,7 +17,7 @@ interface ClientHandlers {
   onError: (message: string) => void;
 }
 
-const STORAGE_PLAYER_ID_KEY = "aetherfall_player_id";
+const STORAGE_PLAYER_ID_KEY = "pals_defence_player_id";
 
 export class GameClient {
   private socket: WebSocket | null = null;
@@ -91,6 +92,15 @@ export class GameClient {
     this.send({
       type: "chooseUpgrade",
       upgradeId,
+    });
+  }
+
+  castSkill(skillId: HeroSkillId, targetX: number, targetY: number): void {
+    this.send({
+      type: "castSkill",
+      skillId,
+      targetX,
+      targetY,
     });
   }
 

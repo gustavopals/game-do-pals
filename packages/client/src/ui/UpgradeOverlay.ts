@@ -1,4 +1,4 @@
-import type { UpgradeOption } from "@aetherfall/shared";
+import type { UpgradeOption } from "@pals-defence/shared";
 
 export class UpgradeOverlay {
   constructor(private readonly root: HTMLElement) {}

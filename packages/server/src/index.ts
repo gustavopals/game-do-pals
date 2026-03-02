@@ -22,4 +22,4 @@ wss.on("connection", (socket) => {
   room.attachConnection(socket);
 });
 
-console.log(`[server] Echoes of Aetherfall listening on ws://localhost:${PORT}`);
+console.log(`[server] Pals Defence listening on ws://localhost:${PORT}`);

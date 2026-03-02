@@ -1,4 +1,4 @@
-import { MAX_WAVES, type EnemyTypeId, SeededRng } from "@aetherfall/shared";
+import { MAX_WAVES, type EnemyTypeId, SeededRng } from "@pals-defence/shared";
 
 export interface SpawnInstruction {
   typeId: EnemyTypeId;
