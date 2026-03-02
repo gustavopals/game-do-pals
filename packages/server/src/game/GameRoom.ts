@@ -36,6 +36,7 @@ import type {
   TowerRuntime,
 } from "./runtime.js";
 import { CombatSystem } from "./systems/CombatSystem.js";
+import { EnemyAbilitySystem } from "./systems/EnemyAbilitySystem.js";
 import { PathSystem } from "./systems/PathSystem.js";
 import { UpgradeSystem } from "./systems/UpgradeSystem.js";
 import { WaveSystem } from "./systems/WaveSystem.js";
@@ -109,6 +110,7 @@ export class GameRoom {
   private waveSystem = new WaveSystem(MAX_WAVES);
   private pathSystem = new PathSystem();
   private combatSystem = new CombatSystem();
+  private enemyAbilitySystem = new EnemyAbilitySystem();
   private upgradeSystem = new UpgradeSystem();
 
   private seed: number;
@@ -435,6 +437,19 @@ export class GameRoom {
         this.spawnEnemy(spawn.typeId, spawn.pathId);
       }
 
+      const heroes = [...this.playersById.values()].map((session) => session.hero);
+      const enemyAbilityResult = this.enemyAbilitySystem.update(
+        deltaMs,
+        heroes,
+        this.enemies,
+        this.map.paths.length,
+        this.rng,
+      );
+      for (const spawn of enemyAbilityResult.spawnRequests) {
+        this.spawnEnemy(spawn.typeId, spawn.pathId);
+      }
+      this.pushProjectileTraceBatch(enemyAbilityResult.projectileTraces);
+
       const pathUpdate = this.pathSystem.update(deltaMs, this.map, this.enemies);
       if (pathUpdate.reachedBaseIds.length > 0) {
         const reachedSet = new Set(pathUpdate.reachedBaseIds);
@@ -450,7 +465,6 @@ export class GameRoom {
         this.enemies = this.enemies.filter((enemy) => !reachedSet.has(enemy.id));
       }
 
-      const heroes = [...this.playersById.values()].map((session) => session.hero);
       const combatResult = this.combatSystem.update(
         deltaMs,
         heroes,
@@ -530,10 +544,16 @@ export class GameRoom {
       poisonStacks: 0,
       poisonRemainingMs: 0,
       shockedRemainingMs: 0,
+      eliteEmpoweredRemainingMs: 0,
+      bossPhase: enemyDef.isBoss ? 1 : 0,
       pathId: safePathId,
       waypointIndex: 0,
       heroAttackCooldownLeftMs: this.rng.rangeInt(180, 900),
       poisonTickAccumulatorMs: 0,
+      baseSpeed: enemyDef.speed,
+      eliteEmpowerCooldownMs: this.rng.rangeInt(2600, 5000),
+      bossSummonCooldownMs: enemyDef.isBoss ? 4200 : 0,
+      bossShockwaveCooldownMs: enemyDef.isBoss ? 2800 : 0,
     };
 
     this.nextEnemyId += 1;
@@ -1003,6 +1023,8 @@ export class GameRoom {
       poisonStacks: enemy.poisonStacks,
       poisonRemainingMs: enemy.poisonRemainingMs,
       shockedRemainingMs: enemy.shockedRemainingMs,
+      eliteEmpoweredRemainingMs: enemy.eliteEmpoweredRemainingMs,
+      bossPhase: enemy.bossPhase,
     };
   }
 

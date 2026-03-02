@@ -186,8 +186,8 @@ export class CombatSystem {
           from: { x: enemy.x, y: enemy.y },
           to: { x: targetHero.x, y: targetHero.y },
           durationMs: 230,
-          radius: 5,
-          color: 0xf03b5f,
+          radius: enemy.bossPhase >= 3 ? 7 : enemy.bossPhase >= 2 ? 6 : 5,
+          color: enemy.bossPhase >= 3 ? 0xff4f86 : enemy.bossPhase >= 2 ? 0xf85f79 : 0xf03b5f,
         });
       }
 
@@ -358,7 +358,7 @@ export class CombatSystem {
 
   private getEnemyAttackRange(enemy: EnemyRuntime): number {
     if (enemy.isBoss) {
-      return ENEMY_BOSS_RANGE;
+      return enemy.bossPhase >= 3 ? ENEMY_BOSS_RANGE + 20 : ENEMY_BOSS_RANGE;
     }
 
     if (enemy.typeId === "ranged") {
@@ -370,6 +370,12 @@ export class CombatSystem {
 
   private getEnemyAttackDamage(enemy: EnemyRuntime): number {
     if (enemy.isBoss) {
+      if (enemy.bossPhase >= 3) {
+        return 30;
+      }
+      if (enemy.bossPhase >= 2) {
+        return 24;
+      }
       return 18;
     }
 
@@ -379,7 +385,7 @@ export class CombatSystem {
       case "armored":
         return 6;
       case "elite":
-        return 8;
+        return enemy.eliteEmpoweredRemainingMs > 0 ? 11 : 8;
       case "runner":
         return 3;
       case "swarm":
@@ -390,7 +396,17 @@ export class CombatSystem {
 
   private getEnemyAttackCooldownMs(enemy: EnemyRuntime): number {
     if (enemy.isBoss) {
+      if (enemy.bossPhase >= 3) {
+        return 850;
+      }
+      if (enemy.bossPhase >= 2) {
+        return 1000;
+      }
       return 1200;
+    }
+
+    if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
+      return 620;
     }
 
     if (enemy.typeId === "ranged") {

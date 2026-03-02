@@ -16,8 +16,9 @@ Monorepo inicial para um roguelite tower defense 2D com:
 
 - 1 heroi jogavel
 - 3 torres (`defender`, `archer`, `mage`)
-- 10 upgrades no pool
+- 14 upgrades no pool
 - 5 tipos de inimigos + 1 boss
+- habilidades inimigas: elite burst + boss em 3 fases (summon/shockwave)
 - 1 mapa
 - Progressao basica entre runs (`packages/server/data/progression.json`)
 
@@ -51,7 +52,7 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 ## Proximos incrementos naturais
 
 - refinamento do downed/revive (acao manual, VFX dedicados, balanceamento de tempo)
-- balanceamento fino dos status (poison, chain lightning, crit) e tooltips
+- balanceamento fino dos status/skills inimigas e tooltips
 - ECS completo em runtime (hoje esta como base de arquitetura)
 - salas/matches multiplas e sincronizacao 2-4 jogadores
 - persistencia de conta/autenticacao

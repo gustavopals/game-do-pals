@@ -75,6 +75,8 @@ export interface EnemySnapshot {
   poisonStacks: number;
   poisonRemainingMs: number;
   shockedRemainingMs: number;
+  eliteEmpoweredRemainingMs: number;
+  bossPhase: number;
 }
 
 export interface GameSnapshot {
@@ -113,6 +115,9 @@ export interface ProjectileTrace {
     | "skill_pulse_shard"
     | "enemy_spit"
     | "enemy_boss_blast"
+    | "enemy_elite_burst"
+    | "enemy_boss_summon"
+    | "enemy_boss_shockwave"
     | "chain_lightning";
   from: Vec2;
   to: Vec2;

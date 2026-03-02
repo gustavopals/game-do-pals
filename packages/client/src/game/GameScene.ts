@@ -318,6 +318,19 @@ export class GameScene extends Phaser.Scene {
       this.graphics.fillStyle(enemy.isBoss ? BOSS_COLOR : ENEMY_COLOR, 1);
       this.graphics.fillCircle(enemy.x, enemy.y, enemy.isBoss ? 14 : 9);
 
+      if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
+        const pulse = 1 + Math.sin(this.time.now / 95) * 1.3;
+        this.graphics.lineStyle(2, 0xff9f4e, 0.95);
+        this.graphics.strokeCircle(enemy.x, enemy.y, 14 + pulse);
+      }
+
+      if (enemy.isBoss) {
+        const phaseColor =
+          enemy.bossPhase >= 3 ? 0xff4e7c : enemy.bossPhase >= 2 ? 0xffa55a : 0xd78294;
+        this.graphics.lineStyle(3, phaseColor, 0.88);
+        this.graphics.strokeCircle(enemy.x, enemy.y, 20 + enemy.bossPhase * 2);
+      }
+
       if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
         this.graphics.lineStyle(2, 0x7ad866, 0.85);
         this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
@@ -367,6 +380,30 @@ export class GameScene extends Phaser.Scene {
   private drawProjectiles(): void {
     for (const projectile of this.projectiles) {
       const progress = Phaser.Math.Clamp(projectile.elapsedMs / projectile.durationMs, 0, 1);
+
+      if (projectile.kind === "enemy_boss_shockwave") {
+        const radius = projectile.radius + progress * 72;
+        this.graphics.lineStyle(4, projectile.color, Math.max(0, 1 - progress));
+        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, radius);
+        continue;
+      }
+
+      if (projectile.kind === "enemy_boss_summon") {
+        const pulse = projectile.radius + progress * 22;
+        this.graphics.lineStyle(2.5, projectile.color, Math.max(0.15, 0.95 - progress * 0.8));
+        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, pulse);
+        this.graphics.lineStyle(1.5, 0xffffff, Math.max(0, 0.7 - progress));
+        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, pulse * 0.65);
+        continue;
+      }
+
+      if (projectile.kind === "enemy_elite_burst") {
+        const radius = projectile.radius + progress * 18;
+        this.graphics.lineStyle(3, projectile.color, Math.max(0, 1 - progress));
+        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, radius);
+        continue;
+      }
+
       const previousProgress = Phaser.Math.Clamp(
         (projectile.elapsedMs - 35) / projectile.durationMs,
         0,
@@ -406,6 +443,8 @@ export class GameScene extends Phaser.Scene {
     const heroInfo = hero
       ? `State ${heroStateLabel} | HP ${hero.hp}/${hero.maxHp} | Gold ${hero.gold} | Lv ${hero.level} | XP ${hero.xp}/${hero.nextLevelXp} | Towers ${this.snapshot.towers.filter((tower) => tower.ownerId === hero.id).length}/${hero.maxTowers}`
       : "Hero not joined yet";
+    const boss = this.snapshot.enemies.find((enemy) => enemy.isBoss);
+    const bossInfo = boss ? ` | Boss Phase ${boss.bossPhase}` : "";
 
     const skillsInfo = hero
       ? hero.skills
@@ -419,7 +458,7 @@ export class GameScene extends Phaser.Scene {
 
     this.hudText.setText(
       [
-        `Wave ${this.snapshot.wave}/${this.snapshot.totalWaves} | Base ${this.snapshot.baseHp}/${this.snapshot.baseMaxHp} | Enemies ${this.snapshot.enemies.length}`,
+        `Wave ${this.snapshot.wave}/${this.snapshot.totalWaves} | Base ${this.snapshot.baseHp}/${this.snapshot.baseMaxHp} | Enemies ${this.snapshot.enemies.length}${bossInfo}`,
         heroInfo,
         hero?.state === "downed"
           ? `Downed Timer ${Math.ceil(hero.downedRemainingMs / 1000)}s | Revive ${Math.round(

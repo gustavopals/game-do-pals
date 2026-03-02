@@ -35,6 +35,10 @@ export interface EnemyRuntime extends EnemySnapshot {
   waypointIndex: number;
   heroAttackCooldownLeftMs: number;
   poisonTickAccumulatorMs: number;
+  baseSpeed: number;
+  eliteEmpowerCooldownMs: number;
+  bossSummonCooldownMs: number;
+  bossShockwaveCooldownMs: number;
 }
 
 export type ProjectileTraceSeed = Omit<ProjectileTrace, "id" | "createdAtMs">;
