@@ -1,0 +1,95 @@
+:root {
+  color: #f4f4f2;
+  background: #1a1916;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, #383323 0%, #191814 60%, #0f0f0c 100%);
+}
+
+#game-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+#game-root {
+  border: 2px solid #857a57;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+#upgrade-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 10, 0.7);
+  padding: 20px;
+}
+
+#upgrade-overlay.hidden {
+  display: none;
+}
+
+.upgrade-panel {
+  width: min(920px, 100%);
+  background: #201d17;
+  border: 2px solid #9b8d68;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+.upgrade-panel h2 {
+  margin: 0 0 12px;
+  color: #efe3be;
+  font-size: 24px;
+}
+
+.upgrade-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.upgrade-card {
+  border: 1px solid #7d714f;
+  border-radius: 8px;
+  background: #29251d;
+  color: #f4f4ef;
+  text-align: left;
+  padding: 10px;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.upgrade-card:hover {
+  transform: translateY(-2px);
+  border-color: #d1be86;
+}
+
+.upgrade-name {
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.upgrade-rarity {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c5b589;
+}
+
+.upgrade-description {
+  margin: 0;
+  font-size: 13px;
+  color: #ece7d7;
+}
