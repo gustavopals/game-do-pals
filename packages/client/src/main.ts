@@ -18,10 +18,15 @@ new Phaser.Game({
   parent: "game-root",
   width: 1280,
   height: 720,
-  backgroundColor: "#15130f",
+  backgroundColor: "#0d1212",
+  pixelArt: true,
+  antialias: false,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  render: {
+    roundPixels: true,
   },
   scene: [new GameScene(client, overlay)],
 });

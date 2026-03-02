@@ -20,6 +20,8 @@ Monorepo inicial para um roguelite tower defense 2D com:
 - 5 tipos de inimigos + 1 boss
 - habilidades inimigas: elite burst + boss em 3 fases (summon/shockwave)
 - 1 mapa
+- visual polish no cliente (menus animados, HUD estilizada, overlay de upgrade revisado)
+- suporte inicial de idioma no cliente (`pt`/`en`) com toggle em tempo real
 - Progressao basica entre runs (`packages/server/data/progression.json`)
 
 ## Rodando localmente
