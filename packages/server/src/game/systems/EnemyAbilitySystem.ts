@@ -1,22 +1,15 @@
-import { type EnemyTypeId, type SeededRng } from "@pals-defence/shared";
+import {
+  type DifficultyBalanceProfile,
+  type EnemyTypeId,
+  type SeededRng,
+} from "@pals-defence/shared";
 
 import type { EnemyRuntime, HeroRuntime, ProjectileTraceSeed } from "../runtime.js";
-
-const ELITE_EMPOWER_DURATION_MS = 1600;
-const ELITE_EMPOWER_COOLDOWN_MIN_MS = 4200;
-const ELITE_EMPOWER_COOLDOWN_MAX_MS = 6200;
-const ELITE_SPEED_MULTIPLIER = 1.55;
 
 const BOSS_PHASE_TWO_HP_RATIO = 0.66;
 const BOSS_PHASE_THREE_HP_RATIO = 0.33;
 const BOSS_PHASE_TWO_SPEED_MULTIPLIER = 1.12;
 const BOSS_PHASE_THREE_SPEED_MULTIPLIER = 1.26;
-
-const BOSS_SUMMON_COOLDOWN_PHASE_TWO_MS = 6200;
-const BOSS_SUMMON_COOLDOWN_PHASE_THREE_MS = 4300;
-const BOSS_SHOCKWAVE_COOLDOWN_MS = 3800;
-const BOSS_SHOCKWAVE_RADIUS = 145;
-const BOSS_SHOCKWAVE_DAMAGE = 22;
 
 type SummonEnemyTypeId = Exclude<EnemyTypeId, "boss">;
 
@@ -31,6 +24,8 @@ export interface EnemyAbilityResult {
 }
 
 export class EnemyAbilitySystem {
+  constructor(private readonly balance: DifficultyBalanceProfile) {}
+
   update(
     deltaMs: number,
     heroes: HeroRuntime[],
@@ -68,10 +63,10 @@ export class EnemyAbilitySystem {
     enemy.eliteEmpowerCooldownMs = Math.max(0, enemy.eliteEmpowerCooldownMs - deltaMs);
 
     if (enemy.eliteEmpoweredRemainingMs <= 0 && enemy.eliteEmpowerCooldownMs <= 0) {
-      enemy.eliteEmpoweredRemainingMs = ELITE_EMPOWER_DURATION_MS;
+      enemy.eliteEmpoweredRemainingMs = this.balance.eliteEmpowerDurationMs;
       enemy.eliteEmpowerCooldownMs = rng.rangeInt(
-        ELITE_EMPOWER_COOLDOWN_MIN_MS,
-        ELITE_EMPOWER_COOLDOWN_MAX_MS,
+        this.balance.eliteEmpowerCooldownMinMs,
+        this.balance.eliteEmpowerCooldownMaxMs,
       );
 
       projectileTraces.push({
@@ -86,7 +81,7 @@ export class EnemyAbilitySystem {
 
     enemy.speed =
       enemy.eliteEmpoweredRemainingMs > 0
-        ? Math.round(enemy.baseSpeed * ELITE_SPEED_MULTIPLIER)
+        ? Math.round(enemy.baseSpeed * this.balance.eliteEmpowerSpeedMultiplier)
         : enemy.baseSpeed;
   }
 
@@ -113,9 +108,15 @@ export class EnemyAbilitySystem {
         color: 0xffc173,
       });
 
-      enemy.bossSummonCooldownMs = Math.min(enemy.bossSummonCooldownMs, 1200);
+      enemy.bossSummonCooldownMs = Math.min(
+        enemy.bossSummonCooldownMs,
+        Math.round(this.balance.bossSummonCooldownPhase2Ms * 0.2),
+      );
       if (enemy.bossPhase >= 3) {
-        enemy.bossShockwaveCooldownMs = Math.min(enemy.bossShockwaveCooldownMs, 900);
+        enemy.bossShockwaveCooldownMs = Math.min(
+          enemy.bossShockwaveCooldownMs,
+          Math.round(this.balance.bossShockwaveCooldownMs * 0.24),
+        );
       }
     }
 
@@ -124,7 +125,10 @@ export class EnemyAbilitySystem {
     if (enemy.bossPhase >= 2) {
       enemy.bossSummonCooldownMs = Math.max(0, enemy.bossSummonCooldownMs - deltaMs);
       if (enemy.bossSummonCooldownMs <= 0) {
-        const summonCount = enemy.bossPhase >= 3 ? 3 : 2;
+        const summonCount =
+          enemy.bossPhase >= 3
+            ? this.balance.bossSummonCountPhase3
+            : this.balance.bossSummonCountPhase2;
         const safePathCount = Math.max(1, pathCount);
 
         for (let index = 0; index < summonCount; index += 1) {
@@ -145,8 +149,8 @@ export class EnemyAbilitySystem {
 
         enemy.bossSummonCooldownMs =
           enemy.bossPhase >= 3
-            ? BOSS_SUMMON_COOLDOWN_PHASE_THREE_MS
-            : BOSS_SUMMON_COOLDOWN_PHASE_TWO_MS;
+            ? this.balance.bossSummonCooldownPhase3Ms
+            : this.balance.bossSummonCooldownPhase2Ms;
       }
     }
 
@@ -160,11 +164,11 @@ export class EnemyAbilitySystem {
           }
 
           const distance = Math.hypot(hero.x - enemy.x, hero.y - enemy.y);
-          if (distance > BOSS_SHOCKWAVE_RADIUS) {
+          if (distance > this.balance.bossShockwaveRadius) {
             continue;
           }
 
-          hero.hp = Math.max(0, hero.hp - BOSS_SHOCKWAVE_DAMAGE);
+          hero.hp = Math.max(0, hero.hp - this.balance.bossShockwaveDamage);
         }
 
         projectileTraces.push({
@@ -176,7 +180,7 @@ export class EnemyAbilitySystem {
           color: 0xff4e7c,
         });
 
-        enemy.bossShockwaveCooldownMs = BOSS_SHOCKWAVE_COOLDOWN_MS;
+        enemy.bossShockwaveCooldownMs = this.balance.bossShockwaveCooldownMs;
       }
     }
   }

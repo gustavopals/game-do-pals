@@ -458,7 +458,7 @@ export class GameScene extends Phaser.Scene {
 
     this.hudText.setText(
       [
-        `Wave ${this.snapshot.wave}/${this.snapshot.totalWaves} | Base ${this.snapshot.baseHp}/${this.snapshot.baseMaxHp} | Enemies ${this.snapshot.enemies.length}${bossInfo}`,
+        `Difficulty ${this.snapshot.difficulty.toUpperCase()} | Wave ${this.snapshot.wave}/${this.snapshot.totalWaves} | Base ${this.snapshot.baseHp}/${this.snapshot.baseMaxHp} | Enemies ${this.snapshot.enemies.length}${bossInfo}`,
         heroInfo,
         hero?.state === "downed"
           ? `Downed Timer ${Math.ceil(hero.downedRemainingMs / 1000)}s | Revive ${Math.round(

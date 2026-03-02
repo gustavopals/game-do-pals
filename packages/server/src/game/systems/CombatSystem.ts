@@ -1,4 +1,4 @@
-import { type SeededRng } from "@pals-defence/shared";
+import { type DifficultyBalanceProfile, type SeededRng } from "@pals-defence/shared";
 
 import type { EnemyRuntime, HeroRuntime, ProjectileTraceSeed, TowerRuntime } from "../runtime.js";
 
@@ -23,6 +23,8 @@ export interface CombatResult {
 }
 
 export class CombatSystem {
+  constructor(private readonly balance: DifficultyBalanceProfile) {}
+
   update(
     deltaMs: number,
     heroes: HeroRuntime[],
@@ -358,7 +360,13 @@ export class CombatSystem {
 
   private getEnemyAttackRange(enemy: EnemyRuntime): number {
     if (enemy.isBoss) {
-      return enemy.bossPhase >= 3 ? ENEMY_BOSS_RANGE + 20 : ENEMY_BOSS_RANGE;
+      if (enemy.bossPhase >= 3) {
+        return this.balance.bossAttackRangePhase3;
+      }
+      if (enemy.bossPhase >= 2) {
+        return this.balance.bossAttackRangePhase2;
+      }
+      return ENEMY_BOSS_RANGE;
     }
 
     if (enemy.typeId === "ranged") {
@@ -371,49 +379,62 @@ export class CombatSystem {
   private getEnemyAttackDamage(enemy: EnemyRuntime): number {
     if (enemy.isBoss) {
       if (enemy.bossPhase >= 3) {
-        return 30;
+        return this.balance.bossDamagePhase3;
       }
       if (enemy.bossPhase >= 2) {
-        return 24;
+        return this.balance.bossDamagePhase2;
       }
-      return 18;
+      return this.balance.bossDamagePhase1;
     }
 
+    let damage = 3;
     switch (enemy.typeId) {
       case "ranged":
-        return 4;
+        damage = 4;
+        break;
       case "armored":
-        return 6;
+        damage = 6;
+        break;
       case "elite":
-        return enemy.eliteEmpoweredRemainingMs > 0 ? 11 : 8;
+        damage =
+          enemy.eliteEmpoweredRemainingMs > 0
+            ? 8 + this.balance.eliteEmpowerDamageBonus
+            : 8;
+        break;
       case "runner":
-        return 3;
+        damage = 3;
+        break;
       case "swarm":
       default:
-        return 3;
+        damage = 3;
+        break;
     }
+
+    return Math.max(1, Math.round(damage * this.balance.enemyAttackDamageMultiplier));
   }
 
   private getEnemyAttackCooldownMs(enemy: EnemyRuntime): number {
     if (enemy.isBoss) {
       if (enemy.bossPhase >= 3) {
-        return 850;
+        return this.balance.bossAttackCooldownPhase3Ms;
       }
       if (enemy.bossPhase >= 2) {
-        return 1000;
+        return this.balance.bossAttackCooldownPhase2Ms;
       }
-      return 1200;
+      return this.balance.bossAttackCooldownPhase1Ms;
     }
 
+    let cooldown = 900;
     if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
-      return 620;
+      cooldown = 620;
+    } else if (enemy.typeId === "ranged") {
+      cooldown = 1100;
     }
 
-    if (enemy.typeId === "ranged") {
-      return 1100;
-    }
-
-    return 900;
+    return Math.max(
+      260,
+      Math.round(cooldown * this.balance.enemyAttackCooldownMultiplier),
+    );
   }
 
   private mapTowerTraceKind(towerType: TowerRuntime["typeId"]): ProjectileTraceSeed["kind"] {

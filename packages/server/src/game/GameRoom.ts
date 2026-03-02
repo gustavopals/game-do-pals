@@ -1,6 +1,7 @@
 import {
   BASE_MAX_HP,
   DEFAULT_MAP,
+  DIFFICULTY_BALANCE,
   ENEMY_DEFINITIONS,
   HERO_BASE_ATTACK_COOLDOWN_MS,
   HERO_BASE_ATTACK_DAMAGE,
@@ -14,6 +15,8 @@ import {
   XP_PER_LEVEL_BASE,
   XP_PER_LEVEL_GROWTH,
   type ClientMessage,
+  type DifficultyBalanceProfile,
+  type DifficultyPreset,
   type EnemySnapshot,
   type GameSnapshot,
   type HeroSnapshot,
@@ -49,6 +52,7 @@ interface PlayerSession {
 
 interface GameRoomOptions {
   seed: number;
+  difficulty: DifficultyPreset;
   progressionStore: ProgressionStore;
 }
 
@@ -109,12 +113,14 @@ export class GameRoom {
 
   private waveSystem = new WaveSystem(MAX_WAVES);
   private pathSystem = new PathSystem();
-  private combatSystem = new CombatSystem();
-  private enemyAbilitySystem = new EnemyAbilitySystem();
+  private combatSystem: CombatSystem;
+  private enemyAbilitySystem: EnemyAbilitySystem;
   private upgradeSystem = new UpgradeSystem();
 
   private seed: number;
   private rng: SeededRng;
+  private difficulty: DifficultyPreset;
+  private difficultyBalance: DifficultyBalanceProfile;
 
   private loopHandle: NodeJS.Timeout;
   private resetHandle: NodeJS.Timeout | null = null;
@@ -123,6 +129,10 @@ export class GameRoom {
     this.seed = options.seed;
     this.rng = new SeededRng(this.seed);
     this.progressionStore = options.progressionStore;
+    this.difficulty = options.difficulty;
+    this.difficultyBalance = DIFFICULTY_BALANCE[this.difficulty];
+    this.combatSystem = new CombatSystem(this.difficultyBalance);
+    this.enemyAbilitySystem = new EnemyAbilitySystem(this.difficultyBalance);
 
     this.loopHandle = setInterval(() => {
       this.update(TICK_MS);
@@ -223,6 +233,7 @@ export class GameRoom {
       playerId,
       displayName,
       seed: this.seed,
+      difficulty: this.difficulty,
       map: this.map,
       progression,
     });
@@ -459,7 +470,13 @@ export class GameRoom {
           }
 
           const enemyDef = ENEMY_DEFINITIONS[enemy.typeId];
-          this.baseHp = Math.max(0, this.baseHp - enemyDef.contactDamage);
+          const contactDamage = Math.max(
+            1,
+            Math.round(
+              enemyDef.contactDamage * this.difficultyBalance.enemyContactDamageMultiplier,
+            ),
+          );
+          this.baseHp = Math.max(0, this.baseHp - contactDamage);
         }
 
         this.enemies = this.enemies.filter((enemy) => !reachedSet.has(enemy.id));
@@ -526,6 +543,11 @@ export class GameRoom {
 
   private spawnEnemy(typeId: Extract<EnemyRuntime["typeId"], string>, pathId: number): void {
     const enemyDef = ENEMY_DEFINITIONS[typeId];
+    const scaledHp = Math.max(1, Math.round(enemyDef.maxHp * this.difficultyBalance.enemyHpMultiplier));
+    const scaledSpeed = Math.max(
+      10,
+      Math.round(enemyDef.speed * this.difficultyBalance.enemySpeedMultiplier),
+    );
     const safePathId = Math.max(0, Math.min(pathId, this.map.paths.length - 1));
     const path = this.map.paths[safePathId] ?? this.map.paths[0];
     const spawnPoint = path[0];
@@ -535,9 +557,9 @@ export class GameRoom {
       typeId: enemyDef.id,
       x: spawnPoint.x,
       y: spawnPoint.y,
-      hp: enemyDef.maxHp,
-      maxHp: enemyDef.maxHp,
-      speed: enemyDef.speed,
+      hp: scaledHp,
+      maxHp: scaledHp,
+      speed: scaledSpeed,
       rewardGold: enemyDef.rewardGold,
       rewardXp: enemyDef.rewardXp,
       isBoss: Boolean(enemyDef.isBoss),
@@ -550,10 +572,17 @@ export class GameRoom {
       waypointIndex: 0,
       heroAttackCooldownLeftMs: this.rng.rangeInt(180, 900),
       poisonTickAccumulatorMs: 0,
-      baseSpeed: enemyDef.speed,
-      eliteEmpowerCooldownMs: this.rng.rangeInt(2600, 5000),
-      bossSummonCooldownMs: enemyDef.isBoss ? 4200 : 0,
-      bossShockwaveCooldownMs: enemyDef.isBoss ? 2800 : 0,
+      baseSpeed: scaledSpeed,
+      eliteEmpowerCooldownMs: this.rng.rangeInt(
+        this.difficultyBalance.eliteEmpowerCooldownMinMs,
+        this.difficultyBalance.eliteEmpowerCooldownMaxMs,
+      ),
+      bossSummonCooldownMs: enemyDef.isBoss
+        ? Math.round(this.difficultyBalance.bossSummonCooldownPhase2Ms * 0.68)
+        : 0,
+      bossShockwaveCooldownMs: enemyDef.isBoss
+        ? Math.round(this.difficultyBalance.bossShockwaveCooldownMs * 0.74)
+        : 0,
     };
 
     this.nextEnemyId += 1;
@@ -943,6 +972,7 @@ export class GameRoom {
       tick: this.tick,
       timeMs: this.elapsedMs,
       seed: this.seed,
+      difficulty: this.difficulty,
       map: this.map,
       wave: this.waveSystem.currentWave,
       totalWaves: MAX_WAVES,

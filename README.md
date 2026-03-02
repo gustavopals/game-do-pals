@@ -33,6 +33,12 @@ npm run dev:client
 Servidor WebSocket padrao: `ws://localhost:3000`
 Cliente Vite padrao: `http://localhost:5173`
 
+Preset de dificuldade no servidor (`easy`, `normal`, `hard`):
+
+```bash
+DIFFICULTY=hard npm run dev:server
+```
+
 Se quiser mudar a URL do servidor no cliente:
 
 ```bash

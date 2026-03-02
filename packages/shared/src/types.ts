@@ -10,6 +10,7 @@ export type EnemyTypeId =
 
 export type HeroSkillId = "arcaneBolt" | "aetherPulse";
 export type HeroState = "alive" | "downed" | "dead";
+export type DifficultyPreset = "easy" | "normal" | "hard";
 
 export interface Vec2 {
   x: number;
@@ -83,6 +84,7 @@ export interface GameSnapshot {
   tick: number;
   timeMs: number;
   seed: number;
+  difficulty: DifficultyPreset;
   map: MapConfig;
   wave: number;
   totalWaves: number;
@@ -227,6 +229,7 @@ export type ServerMessage =
       playerId: string;
       displayName: string;
       seed: number;
+      difficulty: DifficultyPreset;
       map: MapConfig;
       progression: PlayerProgression;
     }
