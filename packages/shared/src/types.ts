@@ -72,6 +72,9 @@ export interface EnemySnapshot {
   rewardGold: number;
   rewardXp: number;
   isBoss: boolean;
+  poisonStacks: number;
+  poisonRemainingMs: number;
+  shockedRemainingMs: number;
 }
 
 export interface GameSnapshot {
@@ -109,7 +112,8 @@ export interface ProjectileTrace {
     | "skill_arcane_bolt"
     | "skill_pulse_shard"
     | "enemy_spit"
-    | "enemy_boss_blast";
+    | "enemy_boss_blast"
+    | "chain_lightning";
   from: Vec2;
   to: Vec2;
   durationMs: number;
@@ -150,7 +154,11 @@ export type UpgradeEffect =
   | { kind: "gold_gain_pct"; amountPct: number }
   | { kind: "heal_flat"; amount: number }
   | { kind: "base_repair_flat"; amount: number }
-  | { kind: "reroll_token_flat"; amount: number };
+  | { kind: "reroll_token_flat"; amount: number }
+  | { kind: "crit_chance_flat"; amountPct: number }
+  | { kind: "crit_damage_pct"; amountPct: number }
+  | { kind: "poison_power_pct"; amountPct: number }
+  | { kind: "chain_damage_pct"; amountPct: number };
 
 export interface UpgradeDefinition {
   id: string;

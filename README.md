@@ -51,7 +51,7 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 ## Proximos incrementos naturais
 
 - refinamento do downed/revive (acao manual, VFX dedicados, balanceamento de tempo)
-- sistema de status (poison, chain lightning, crit) real
+- balanceamento fino dos status (poison, chain lightning, crit) e tooltips
 - ECS completo em runtime (hoje esta como base de arquitetura)
 - salas/matches multiplas e sincronizacao 2-4 jogadores
 - persistencia de conta/autenticacao

@@ -170,6 +170,34 @@ export const UPGRADE_POOL: UpgradeDefinition[] = [
     rarity: "epic",
     effects: [{ kind: "reroll_token_flat", amount: 1 }],
   },
+  {
+    id: "keen_eyes",
+    name: "Keen Eyes",
+    description: "+8% chance de critico.",
+    rarity: "rare",
+    effects: [{ kind: "crit_chance_flat", amountPct: 8 }],
+  },
+  {
+    id: "rending_focus",
+    name: "Rending Focus",
+    description: "+35% dano critico.",
+    rarity: "rare",
+    effects: [{ kind: "crit_damage_pct", amountPct: 35 }],
+  },
+  {
+    id: "venomous_runes",
+    name: "Venomous Runes",
+    description: "+30% poder de veneno.",
+    rarity: "rare",
+    effects: [{ kind: "poison_power_pct", amountPct: 30 }],
+  },
+  {
+    id: "storm_conductor",
+    name: "Storm Conductor",
+    description: "+25% dano de chain lightning.",
+    rarity: "epic",
+    effects: [{ kind: "chain_damage_pct", amountPct: 25 }],
+  },
 ];
 
 export const MAPS: MapConfig[] = [

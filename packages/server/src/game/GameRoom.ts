@@ -80,6 +80,8 @@ const DOWNED_BLEEDOUT_MS = 12000;
 const REVIVE_REQUIRED_MS = 2800;
 const REVIVE_RANGE = 56;
 const REVIVE_DECAY_FACTOR = 0.7;
+const ARCANE_BOLT_SHOCK_MS = 2800;
+const AETHER_PULSE_POISON_MS = 5200;
 
 export class GameRoom {
   private readonly map = DEFAULT_MAP;
@@ -361,16 +363,20 @@ export class GameRoom {
           return;
         }
 
-        const damage = Math.max(12, Math.round(hero.attackDamage * 4.6));
+        const critChance = Math.min(95, Math.max(0, hero.critChancePct + 12));
+        const isCrit = this.rng.next() * 100 < critChance;
+        const critMultiplier = isCrit ? Math.max(1.3, hero.critDamageMultiplier) : 1;
+        const damage = Math.max(12, Math.round(hero.attackDamage * 4.6 * critMultiplier));
         target.hp = Math.max(0, target.hp - damage);
+        target.shockedRemainingMs = Math.max(target.shockedRemainingMs, ARCANE_BOLT_SHOCK_MS);
 
         this.pushProjectileTrace({
           kind: "skill_arcane_bolt",
           from: { x: hero.x, y: hero.y },
           to: { x: target.x, y: target.y },
           durationMs: 300,
-          radius: 6,
-          color: 0xc187ff,
+          radius: isCrit ? 7 : 6,
+          color: isCrit ? 0xf6d86f : 0xc187ff,
         });
 
         hero.skillCooldownsMs.arcaneBolt = definition.cooldownMs;
@@ -385,6 +391,10 @@ export class GameRoom {
         const damage = Math.max(8, Math.round(hero.attackDamage * 2.15));
         for (const target of targets) {
           target.hp = Math.max(0, target.hp - damage);
+          const poisonStacks = Math.max(1, Math.round(2 * hero.poisonPowerMultiplier));
+          target.poisonStacks = Math.min(12, target.poisonStacks + poisonStacks);
+          target.poisonRemainingMs = Math.max(target.poisonRemainingMs, AETHER_PULSE_POISON_MS);
+
           this.pushProjectileTrace({
             kind: "skill_pulse_shard",
             from: { x: hero.x, y: hero.y },
@@ -441,7 +451,13 @@ export class GameRoom {
       }
 
       const heroes = [...this.playersById.values()].map((session) => session.hero);
-      const combatResult = this.combatSystem.update(deltaMs, heroes, this.towers, this.enemies);
+      const combatResult = this.combatSystem.update(
+        deltaMs,
+        heroes,
+        this.towers,
+        this.enemies,
+        this.rng,
+      );
       this.pushProjectileTraceBatch(combatResult.projectileTraces);
       this.handleEnemyDefeats(combatResult.defeatedEnemyIds);
       this.applyDownedStateTransitions();
@@ -511,9 +527,13 @@ export class GameRoom {
       rewardGold: enemyDef.rewardGold,
       rewardXp: enemyDef.rewardXp,
       isBoss: Boolean(enemyDef.isBoss),
+      poisonStacks: 0,
+      poisonRemainingMs: 0,
+      shockedRemainingMs: 0,
       pathId: safePathId,
       waypointIndex: 0,
       heroAttackCooldownLeftMs: this.rng.rangeInt(180, 900),
+      poisonTickAccumulatorMs: 0,
     };
 
     this.nextEnemyId += 1;
@@ -754,6 +774,18 @@ export class GameRoom {
         case "reroll_token_flat":
           hero.rerollTokens += effect.amount;
           break;
+        case "crit_chance_flat":
+          hero.critChancePct += effect.amountPct;
+          break;
+        case "crit_damage_pct":
+          hero.critDamageMultiplier *= 1 + effect.amountPct / 100;
+          break;
+        case "poison_power_pct":
+          hero.poisonPowerMultiplier *= 1 + effect.amountPct / 100;
+          break;
+        case "chain_damage_pct":
+          hero.chainDamageMultiplier *= 1 + effect.amountPct / 100;
+          break;
         default:
           break;
       }
@@ -875,6 +907,10 @@ export class GameRoom {
         arcaneBolt: 0,
         aetherPulse: 0,
       },
+      critChancePct: 10,
+      critDamageMultiplier: 1.7,
+      poisonPowerMultiplier: 1,
+      chainDamageMultiplier: 1,
     };
   }
 
@@ -964,6 +1000,9 @@ export class GameRoom {
       rewardGold: enemy.rewardGold,
       rewardXp: enemy.rewardXp,
       isBoss: enemy.isBoss,
+      poisonStacks: enemy.poisonStacks,
+      poisonRemainingMs: enemy.poisonRemainingMs,
+      shockedRemainingMs: enemy.shockedRemainingMs,
     };
   }
 

@@ -19,6 +19,10 @@ export interface HeroRuntime extends HeroSnapshot {
   ownedUpgradeIds: Set<string>;
   totalGoldEarned: number;
   skillCooldownsMs: Record<HeroSkillId, number>;
+  critChancePct: number;
+  critDamageMultiplier: number;
+  poisonPowerMultiplier: number;
+  chainDamageMultiplier: number;
 }
 
 export interface TowerRuntime extends TowerSnapshot {
@@ -30,6 +34,7 @@ export interface EnemyRuntime extends EnemySnapshot {
   pathId: number;
   waypointIndex: number;
   heroAttackCooldownLeftMs: number;
+  poisonTickAccumulatorMs: number;
 }
 
 export type ProjectileTraceSeed = Omit<ProjectileTrace, "id" | "createdAtMs">;

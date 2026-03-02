@@ -318,6 +318,16 @@ export class GameScene extends Phaser.Scene {
       this.graphics.fillStyle(enemy.isBoss ? BOSS_COLOR : ENEMY_COLOR, 1);
       this.graphics.fillCircle(enemy.x, enemy.y, enemy.isBoss ? 14 : 9);
 
+      if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
+        this.graphics.lineStyle(2, 0x7ad866, 0.85);
+        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
+      }
+
+      if (enemy.shockedRemainingMs > 0) {
+        this.graphics.lineStyle(2, 0x86ecff, 0.85);
+        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 21 : 15);
+      }
+
       const hpRatio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
       this.graphics.fillStyle(0x240e0e, 1);
       this.graphics.fillRect(enemy.x - 12, enemy.y - 16, 24, 4);
@@ -377,6 +387,9 @@ export class GameScene extends Phaser.Scene {
       if (projectile.kind === "skill_arcane_bolt") {
         this.graphics.lineStyle(1.5, 0xffffff, 0.45);
         this.graphics.strokeCircle(x, y, projectile.radius + 2);
+      } else if (projectile.kind === "chain_lightning") {
+        this.graphics.lineStyle(1.5, 0xffffff, 0.55);
+        this.graphics.lineBetween(previousX, previousY, x, y);
       }
     }
   }
