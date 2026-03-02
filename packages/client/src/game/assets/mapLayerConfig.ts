@@ -1,0 +1,107 @@
+export interface MapLayerGroundConfig {
+  lowTile: string;
+  midTile: string;
+  highTile: string;
+  lowMaxNoise: number;
+  midMaxNoise: number;
+}
+
+export interface MapLayerPathConfig {
+  tileA: string;
+  tileB: string;
+  mixThreshold: number;
+  radiusTiles: number;
+  sampleStepPx: number;
+  noiseOffsetX: number;
+  noiseOffsetY: number;
+}
+
+export interface MapLayerDecorRule {
+  texture: string;
+  minNoise: number;
+  maxNoise: number;
+  noiseScaleX: number;
+  noiseScaleY: number;
+  noiseOffsetX: number;
+  noiseOffsetY: number;
+}
+
+export interface MapLayerConfig {
+  version: number;
+  mapId: string;
+  tileSize: number;
+  minBaseClearRadiusTiles: number;
+  ground: MapLayerGroundConfig;
+  path: MapLayerPathConfig;
+  decorRules: MapLayerDecorRule[];
+}
+
+export const DEFAULT_MAP_LAYER_CONFIG: MapLayerConfig = {
+  version: 1,
+  mapId: "wardens-field",
+  tileSize: 16,
+  minBaseClearRadiusTiles: 2.8,
+  ground: {
+    lowTile: "tile_grass_a",
+    midTile: "tile_grass_b",
+    highTile: "tile_grass_c",
+    lowMaxNoise: 0.4,
+    midMaxNoise: 0.7,
+  },
+  path: {
+    tileA: "tile_path_a",
+    tileB: "tile_path_b",
+    mixThreshold: 0.5,
+    radiusTiles: 1,
+    sampleStepPx: 6,
+    noiseOffsetX: 13,
+    noiseOffsetY: 37,
+  },
+  decorRules: [
+    {
+      texture: "prop_tree",
+      minNoise: 0.986,
+      maxNoise: 1,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 23,
+      noiseOffsetY: 9,
+    },
+    {
+      texture: "prop_bush",
+      minNoise: 0.966,
+      maxNoise: 0.986,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 23,
+      noiseOffsetY: 9,
+    },
+    {
+      texture: "prop_stone",
+      minNoise: 0,
+      maxNoise: 0.024,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 23,
+      noiseOffsetY: 9,
+    },
+    {
+      texture: "prop_flower_gold",
+      minNoise: 0.49,
+      maxNoise: 0.5,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 23,
+      noiseOffsetY: 9,
+    },
+    {
+      texture: "prop_flower_blue",
+      minNoise: 0.32,
+      maxNoise: 0.33,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 23,
+      noiseOffsetY: 9,
+    },
+  ],
+};

@@ -1,6 +1,9 @@
 import type {
   DifficultyPreset,
+  EnemySnapshot,
   GameSnapshot,
+  HeroSnapshot,
+  MapConfig,
   PlayerProgression,
   ProjectileTrace,
   RunSummary,
@@ -18,18 +21,16 @@ import {
 } from "../i18n";
 import { GameClient } from "../network/GameClient";
 import { UpgradeOverlay } from "../ui/UpgradeOverlay";
+import {
+  ENEMY_TEXTURE_KEYS,
+  ENEMY_TINTS,
+  HERO_TEXTURE_KEYS,
+  PIXEL_PALETTE,
+  PIXEL_TEXTURES,
+  TOWER_TEXTURE_KEYS,
+} from "./assets/pixelArtCatalog";
+import { DEFAULT_MAP_LAYER_CONFIG, type MapLayerConfig } from "./assets/mapLayerConfig";
 
-const TOWER_COLORS: Record<TowerTypeId, number> = {
-  defender: 0x6f7f5a,
-  archer: 0x8ccf4f,
-  mage: 0x4ec7d8,
-};
-
-const HERO_COLOR = 0xeadb9b;
-const HERO_DOWNED_COLOR = 0xd1a65b;
-const HERO_DEAD_COLOR = 0x5a5555;
-const ENEMY_COLOR = 0xd45757;
-const BOSS_COLOR = 0x8f253d;
 const TITLE_FONT = '"Cinzel", "Palatino Linotype", serif';
 const BODY_FONT = '"Spectral", "Segoe UI", serif';
 const TERRAIN_TILE_SIZE = 16;
@@ -61,6 +62,7 @@ interface AmbientMote {
 export class GameScene extends Phaser.Scene {
   private snapshot: GameSnapshot | null = null;
   private graphics!: Phaser.GameObjects.Graphics;
+  private mapTexture: Phaser.GameObjects.RenderTexture | null = null;
   private hudText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
   private screenLayer!: Phaser.GameObjects.Container;
@@ -84,6 +86,13 @@ export class GameScene extends Phaser.Scene {
   private latestProjectileTraceId = 0;
   private projectiles: ActiveProjectile[] = [];
   private ambientMotes: AmbientMote[] = [];
+  private mapLayerConfig: MapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
+  private pixelTexturesReady = false;
+  private mapRenderSignature = "";
+
+  private towerSprites = new Map<number, Phaser.GameObjects.Sprite>();
+  private enemySprites = new Map<number, Phaser.GameObjects.Sprite>();
+  private heroSprites = new Map<string, Phaser.GameObjects.Sprite>();
 
   private keys!: {
     w: Phaser.Input.Keyboard.Key;
@@ -104,8 +113,18 @@ export class GameScene extends Phaser.Scene {
     super("game");
   }
 
+  preload(): void {
+    this.load.json("map-layers-wardens-field", "assets/maps/wardens-field.layers.json");
+  }
+
   create(): void {
-    this.graphics = this.add.graphics();
+    this.resolveMapLayerConfig();
+    this.ensurePixelTextures();
+    this.mapTexture = this.add
+      .renderTexture(0, 0, 1280, 720)
+      .setOrigin(0)
+      .setDepth(5);
+    this.graphics = this.add.graphics().setDepth(80);
 
     this.hudText = this.add
       .text(12, 10, "", {
@@ -239,6 +258,7 @@ export class GameScene extends Phaser.Scene {
     this.handleInput(delta);
     this.updateProjectiles(delta);
     this.updateAmbientMotes(delta);
+    this.syncEntitySprites();
     this.drawWorld();
     this.updateHud();
   }
@@ -352,21 +372,16 @@ export class GameScene extends Phaser.Scene {
 
   private drawWorld(): void {
     this.graphics.clear();
-    this.graphics.fillGradientStyle(0x182523, 0x182523, 0x0a1110, 0x0a1110, 1);
-    this.graphics.fillRect(0, 0, 1280, 720);
     this.drawAmbientMotes();
 
     if (!this.snapshot) {
+      this.mapTexture?.setVisible(false);
       return;
     }
 
     const snapshot = this.snapshot;
-
-    this.graphics.fillGradientStyle(0x334734, 0x314332, 0x1d2a21, 0x19221c, 1);
-    this.graphics.fillRect(0, 0, snapshot.map.width, snapshot.map.height);
-    this.drawPixelTerrain(snapshot.map.width, snapshot.map.height);
-    this.drawPathBands(snapshot.map.paths);
-    this.drawPathPebbles(snapshot.map.paths);
+    this.ensureMapRender(snapshot.map);
+    this.mapTexture?.setVisible(true);
 
     const basePulse = 0.5 + Math.sin(this.time.now / 260) * 0.5;
     this.graphics.fillStyle(0x2c7f6a, 0.95);
@@ -397,135 +412,12 @@ export class GameScene extends Phaser.Scene {
       this.graphics.strokeCircle(slot.x, slot.y, 8);
     }
 
-    for (const tower of snapshot.towers) {
-      this.drawTowerShape(tower.typeId, tower.x, tower.y);
-    }
-
-    for (const enemy of snapshot.enemies) {
-      this.graphics.fillStyle(0x090807, 0.34);
-      this.graphics.fillEllipse(enemy.x, enemy.y + (enemy.isBoss ? 12 : 8), enemy.isBoss ? 36 : 22, enemy.isBoss ? 13 : 8);
-      this.graphics.fillStyle(enemy.isBoss ? BOSS_COLOR : ENEMY_COLOR, 1);
-      this.graphics.fillCircle(enemy.x, enemy.y, enemy.isBoss ? 14 : 9);
-      this.graphics.fillStyle(0xffe6dc, enemy.isBoss ? 0.2 : 0.17);
-      this.graphics.fillCircle(enemy.x - 3, enemy.y - 4, enemy.isBoss ? 4 : 2.5);
-
-      if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
-        const pulse = 1 + Math.sin(this.time.now / 95) * 1.3;
-        this.graphics.lineStyle(2.5, 0xff9f4e, 0.95);
-        this.graphics.strokeCircle(enemy.x, enemy.y, 14 + pulse * 1.2);
-      }
-
-      if (enemy.isBoss) {
-        const phaseColor =
-          enemy.bossPhase >= 3 ? 0xff4e7c : enemy.bossPhase >= 2 ? 0xffa55a : 0xd78294;
-        this.graphics.lineStyle(3, phaseColor, 0.92);
-        this.graphics.strokeCircle(enemy.x, enemy.y, 20 + enemy.bossPhase * 2);
-        this.graphics.lineStyle(2, 0xffd7c4, 0.45);
-        this.graphics.lineBetween(enemy.x - 8, enemy.y - 16, enemy.x, enemy.y - 22);
-        this.graphics.lineBetween(enemy.x + 8, enemy.y - 16, enemy.x, enemy.y - 22);
-      }
-
-      if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
-        this.graphics.lineStyle(2, 0x7ad866, 0.85);
-        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
-      }
-
-      if (enemy.shockedRemainingMs > 0) {
-        this.graphics.lineStyle(2, 0x86ecff, 0.85);
-        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 21 : 15);
-      }
-
-      const hpRatio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
-      this.graphics.fillStyle(0x1f0f11, 0.95);
-      this.graphics.fillRoundedRect(enemy.x - 13, enemy.y - 17, 26, 5, 2);
-      this.graphics.fillStyle(0x9cca74, 1);
-      this.graphics.fillRoundedRect(enemy.x - 13, enemy.y - 17, 26 * hpRatio, 5, 2);
-    }
-
-    for (const hero of snapshot.heroes) {
-      const isLocalHero = hero.id === this.playerId;
-      const heroColor =
-        hero.state === "alive"
-          ? (isLocalHero ? HERO_COLOR : 0xbababa)
-          : hero.state === "downed"
-            ? HERO_DOWNED_COLOR
-            : HERO_DEAD_COLOR;
-      this.graphics.fillStyle(0x090807, 0.35);
-      this.graphics.fillEllipse(hero.x, hero.y + 11, 24, 10);
-      this.graphics.fillStyle(heroColor, 1);
-      this.graphics.fillCircle(hero.x, hero.y, 11);
-      this.graphics.lineStyle(2.2, isLocalHero ? 0xfaf3cc : 0xd7d7d7, hero.state === "alive" ? 1 : 0.6);
-      this.graphics.strokeCircle(hero.x, hero.y, 11);
-      this.graphics.fillStyle(0xffffff, 0.18);
-      this.graphics.fillCircle(hero.x - 3, hero.y - 4, 3.2);
-
-      if (hero.state === "downed") {
-        const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / 2800 : 0;
-        this.graphics.lineStyle(2, 0x90f5a3, 0.9);
-        this.graphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
-      }
-
-      if (hero.state === "dead") {
-        this.graphics.lineStyle(2, 0x2e2727, 1);
-        this.graphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
-        this.graphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
-      }
-    }
+    this.drawEnemyOverlays(snapshot.enemies);
+    this.drawHeroOverlays(snapshot.heroes);
 
     this.drawProjectiles();
 
-    this.graphics.fillStyle(0x080907, 0.2);
-    this.graphics.fillRect(0, 0, snapshot.map.width, 24);
-    this.graphics.fillRect(0, snapshot.map.height - 24, snapshot.map.width, 24);
     this.drawPixelVignette(snapshot.map.width, snapshot.map.height);
-  }
-
-  private drawTowerShape(typeId: TowerTypeId, x: number, y: number): void {
-    const color = TOWER_COLORS[typeId];
-    this.graphics.fillStyle(0x090807, 0.34);
-    this.graphics.fillEllipse(x, y + 12, 24, 10);
-
-    switch (typeId) {
-      case "defender": {
-        this.graphics.fillStyle(color, 1);
-        this.graphics.fillRoundedRect(x - 11, y - 11, 22, 22, 5);
-        this.graphics.lineStyle(2, 0xdce8c8, 0.6);
-        this.graphics.strokeRoundedRect(x - 11, y - 11, 22, 22, 5);
-        this.graphics.lineStyle(2, 0xe8f4d7, 0.65);
-        this.graphics.lineBetween(x, y - 6, x, y + 7);
-        break;
-      }
-      case "archer": {
-        const triangle = [
-          { x, y: y - 12 },
-          { x: x + 12, y: y + 10 },
-          { x: x - 12, y: y + 10 },
-        ];
-        this.graphics.fillStyle(color, 1);
-        this.graphics.fillPoints(triangle, true);
-        this.graphics.lineStyle(2, 0xe5f4c9, 0.62);
-        this.graphics.strokePoints(triangle, true);
-        this.graphics.lineStyle(1.5, 0xffffff, 0.45);
-        this.graphics.lineBetween(x - 4, y + 4, x + 6, y - 2);
-        break;
-      }
-      case "mage":
-      default: {
-        const crystal = [
-          { x, y: y - 13 },
-          { x: x + 11, y },
-          { x, y: y + 13 },
-          { x: x - 11, y },
-        ];
-        this.graphics.fillStyle(color, 1);
-        this.graphics.fillPoints(crystal, true);
-        this.graphics.lineStyle(2, 0xcff7ff, 0.64);
-        this.graphics.strokePoints(crystal, true);
-        this.graphics.lineStyle(2, 0x8bf4ff, 0.7);
-        this.graphics.strokeCircle(x, y, 16);
-        break;
-      }
-    }
   }
 
   private drawProjectiles(): void {
@@ -790,6 +682,8 @@ export class GameScene extends Phaser.Scene {
     this.snapshot = null;
     this.latestProjectileTraceId = 0;
     this.projectiles = [];
+    this.clearEntitySprites();
+    this.mapTexture?.setVisible(false);
     this.upgradeOverlay.hide();
     this.client.disconnect();
     this.screenMode = "connecting";
@@ -987,87 +881,413 @@ export class GameScene extends Phaser.Scene {
     return tr(this.locale, "run_status_unknown");
   }
 
-  private drawPixelTerrain(width: number, height: number): void {
-    for (let y = 0; y < height; y += TERRAIN_TILE_SIZE) {
-      for (let x = 0; x < width; x += TERRAIN_TILE_SIZE) {
-        const noise = this.tileNoise(
-          Math.floor(x / TERRAIN_TILE_SIZE),
-          Math.floor(y / TERRAIN_TILE_SIZE),
-        );
-
-        let tileColor = 0x2a402f;
-        if (noise > 0.76) {
-          tileColor = 0x3f5f43;
-        } else if (noise > 0.52) {
-          tileColor = 0x344f3a;
-        } else if (noise < 0.18) {
-          tileColor = 0x213329;
-        }
-
-        this.graphics.fillStyle(tileColor, 0.2 + noise * 0.14);
-        this.graphics.fillRect(x, y, TERRAIN_TILE_SIZE, TERRAIN_TILE_SIZE);
-
-        if (noise > 0.92) {
-          this.graphics.fillStyle(0xa5cf83, 0.33);
-          this.graphics.fillRect(x + 5, y + 4, 3, 3);
-        } else if (noise < 0.07) {
-          this.graphics.fillStyle(0x19261f, 0.38);
-          this.graphics.fillRect(x + 4, y + 5, 4, 4);
-        }
-      }
+  private resolveMapLayerConfig(): void {
+    const loaded = this.cache.json.get("map-layers-wardens-field");
+    if (!loaded || typeof loaded !== "object") {
+      this.mapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
+      return;
     }
+
+    const candidate = loaded as Partial<MapLayerConfig>;
+    if (!candidate.ground || !candidate.path || !Array.isArray(candidate.decorRules)) {
+      this.mapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
+      return;
+    }
+
+    this.mapLayerConfig = {
+      ...DEFAULT_MAP_LAYER_CONFIG,
+      ...candidate,
+      ground: {
+        ...DEFAULT_MAP_LAYER_CONFIG.ground,
+        ...candidate.ground,
+      },
+      path: {
+        ...DEFAULT_MAP_LAYER_CONFIG.path,
+        ...candidate.path,
+      },
+      decorRules: candidate.decorRules.map((rule) => ({
+        ...rule,
+      })),
+    };
   }
 
-  private drawPathBands(paths: GameSnapshot["map"]["paths"]): void {
-    this.graphics.lineStyle(28, 0x3d3526, 0.72);
-    for (const path of paths) {
-      for (let i = 0; i < path.length - 1; i += 1) {
-        const from = path[i];
-        const to = path[i + 1];
-        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
-      }
+  private ensurePixelTextures(): void {
+    if (this.pixelTexturesReady) {
+      return;
     }
 
-    this.graphics.lineStyle(16, 0x7f6844, 0.94);
-    for (const path of paths) {
-      for (let i = 0; i < path.length - 1; i += 1) {
-        const from = path[i];
-        const to = path[i + 1];
-        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
-      }
+    for (const texture of PIXEL_TEXTURES) {
+      this.generatePixelTexture(texture.key, texture.data, texture.pixelWidth ?? 2);
     }
 
-    this.graphics.lineStyle(2, 0xe4cf95, 0.5);
-    for (const path of paths) {
-      for (let i = 0; i < path.length - 1; i += 1) {
-        const from = path[i];
-        const to = path[i + 1];
-        this.graphics.lineBetween(from.x, from.y, to.x, to.y);
-      }
-    }
+    this.pixelTexturesReady = true;
   }
 
-  private drawPathPebbles(paths: GameSnapshot["map"]["paths"]): void {
-    for (const path of paths) {
+  private generatePixelTexture(key: string, data: string[], pixelWidth = 2): void {
+    if (this.textures.exists(key)) {
+      return;
+    }
+
+    this.textures.generate(key, {
+      data,
+      pixelWidth,
+      pixelHeight: pixelWidth,
+      palette: PIXEL_PALETTE,
+    });
+  }
+
+  private ensureMapRender(map: MapConfig): void {
+    const config = this.mapLayerConfig;
+    const tileSize = Math.max(4, Math.floor(config.tileSize || TERRAIN_TILE_SIZE));
+    const pathRadius = Math.max(0, Math.round(config.path.radiusTiles));
+    const sampleStepPx = Math.max(1, config.path.sampleStepPx);
+    const signature = `${map.id}:${map.width}x${map.height}:v${config.version}`;
+    if (!this.mapTexture) {
+      this.mapTexture = this.add
+        .renderTexture(0, 0, map.width, map.height)
+        .setOrigin(0)
+        .setDepth(5);
+      this.mapRenderSignature = "";
+    } else if (this.mapTexture.width !== map.width || this.mapTexture.height !== map.height) {
+      this.mapTexture.destroy();
+      this.mapTexture = this.add
+        .renderTexture(0, 0, map.width, map.height)
+        .setOrigin(0)
+        .setDepth(5);
+      this.mapRenderSignature = "";
+    }
+
+    if (this.mapRenderSignature === signature) {
+      return;
+    }
+
+    this.mapTexture.clear();
+
+    const tileWidth = Math.ceil(map.width / tileSize);
+    const tileHeight = Math.ceil(map.height / tileSize);
+
+    for (let ty = 0; ty < tileHeight; ty += 1) {
+      for (let tx = 0; tx < tileWidth; tx += 1) {
+        const noise = this.tileNoise(tx, ty);
+        let key = config.ground.highTile;
+        if (noise <= config.ground.lowMaxNoise) {
+          key = config.ground.lowTile;
+        } else if (noise <= config.ground.midMaxNoise) {
+          key = config.ground.midTile;
+        }
+        this.mapTexture.drawFrame(key, undefined, tx * tileSize, ty * tileSize);
+      }
+    }
+
+    const pathTiles = new Set<string>();
+    for (const path of map.paths) {
       for (let i = 0; i < path.length - 1; i += 1) {
         const from = path[i];
         const to = path[i + 1];
         const distance = Math.hypot(to.x - from.x, to.y - from.y);
-        const steps = Math.max(1, Math.round(distance / 12));
+        const steps = Math.max(1, Math.ceil(distance / sampleStepPx));
 
         for (let step = 0; step <= steps; step += 1) {
           const progress = step / steps;
           const px = Phaser.Math.Linear(from.x, to.x, progress);
           const py = Phaser.Math.Linear(from.y, to.y, progress);
-          const noise = this.tileNoise(Math.floor(px / 12), Math.floor(py / 12));
-          const size = noise > 0.64 ? 4 : 3;
-          const color = noise > 0.72 ? 0xd2ba84 : 0x9f8158;
-          const alpha = noise > 0.72 ? 0.28 : 0.2;
-          this.graphics.fillStyle(color, alpha);
-          this.graphics.fillRect(Math.round(px - size / 2), Math.round(py - size / 2), size, size);
+          const centerTx = Math.floor(px / tileSize);
+          const centerTy = Math.floor(py / tileSize);
+
+          for (let oy = -pathRadius; oy <= pathRadius; oy += 1) {
+            for (let ox = -pathRadius; ox <= pathRadius; ox += 1) {
+              if (Math.hypot(ox, oy) > pathRadius + 0.45) {
+                continue;
+              }
+              pathTiles.add(`${centerTx + ox}:${centerTy + oy}`);
+            }
+          }
         }
       }
     }
+
+    for (const tileKey of pathTiles) {
+      const [rawTx, rawTy] = tileKey.split(":");
+      const tx = Number(rawTx);
+      const ty = Number(rawTy);
+      if (tx < 0 || ty < 0 || tx >= tileWidth || ty >= tileHeight) {
+        continue;
+      }
+
+      const noise = this.tileNoise(tx + config.path.noiseOffsetX, ty + config.path.noiseOffsetY);
+      const key = noise > config.path.mixThreshold ? config.path.tileA : config.path.tileB;
+      this.mapTexture.drawFrame(key, undefined, tx * tileSize, ty * tileSize);
+    }
+
+    const towerTiles = new Set<string>(
+      map.towerSlots.map((slot) => {
+        const tx = Math.floor(slot.x / tileSize);
+        const ty = Math.floor(slot.y / tileSize);
+        return `${tx}:${ty}`;
+      }),
+    );
+    const baseTx = Math.floor(map.basePosition.x / tileSize);
+    const baseTy = Math.floor(map.basePosition.y / tileSize);
+
+    for (let ty = 0; ty < tileHeight; ty += 1) {
+      for (let tx = 0; tx < tileWidth; tx += 1) {
+        const key = `${tx}:${ty}`;
+        if (pathTiles.has(key) || towerTiles.has(key)) {
+          continue;
+        }
+
+        if (Math.hypot(tx - baseTx, ty - baseTy) < config.minBaseClearRadiusTiles) {
+          continue;
+        }
+
+        const worldX = tx * tileSize;
+        const worldY = ty * tileSize;
+
+        for (const rule of config.decorRules) {
+          const noise = this.tileNoise(
+            tx * rule.noiseScaleX + rule.noiseOffsetX,
+            ty * rule.noiseScaleY + rule.noiseOffsetY,
+          );
+          if (noise >= rule.minNoise && noise < rule.maxNoise) {
+            this.mapTexture.drawFrame(rule.texture, undefined, worldX, worldY);
+            break;
+          }
+        }
+      }
+    }
+
+    this.mapRenderSignature = signature;
+  }
+
+  private syncEntitySprites(): void {
+    if (!this.snapshot) {
+      this.clearEntitySprites();
+      return;
+    }
+
+    this.syncTowerSprites(this.snapshot);
+    this.syncEnemySprites(this.snapshot);
+    this.syncHeroSprites(this.snapshot);
+  }
+
+  private syncTowerSprites(snapshot: GameSnapshot): void {
+    const activeTowerIds = new Set<number>();
+
+    for (const tower of snapshot.towers) {
+      activeTowerIds.add(tower.id);
+
+      let sprite = this.towerSprites.get(tower.id);
+      if (!sprite) {
+        sprite = this.add
+          .sprite(tower.x, tower.y, this.getTowerTextureKey(tower.typeId))
+          .setOrigin(0.5, 0.8);
+        this.towerSprites.set(tower.id, sprite);
+      }
+
+      sprite.setTexture(this.getTowerTextureKey(tower.typeId));
+      const bobY = Math.sin((this.time.now + tower.id * 121) / 340) * 0.55;
+      sprite.setPosition(tower.x, tower.y + bobY);
+      sprite.setDepth(30 + tower.y * 0.05);
+      sprite.setAlpha(1);
+    }
+
+    for (const [towerId, sprite] of this.towerSprites.entries()) {
+      if (activeTowerIds.has(towerId)) {
+        continue;
+      }
+      sprite.destroy();
+      this.towerSprites.delete(towerId);
+    }
+  }
+
+  private syncEnemySprites(snapshot: GameSnapshot): void {
+    const activeEnemyIds = new Set<number>();
+
+    for (const enemy of snapshot.enemies) {
+      activeEnemyIds.add(enemy.id);
+
+      let sprite = this.enemySprites.get(enemy.id);
+      if (!sprite) {
+        sprite = this.add
+          .sprite(enemy.x, enemy.y, this.getEnemyTextureKey(enemy))
+          .setOrigin(0.5, 0.78);
+        this.enemySprites.set(enemy.id, sprite);
+      }
+
+      sprite.setTexture(this.getEnemyTextureKey(enemy));
+      const bobY = Math.sin((this.time.now + enemy.id * 97) / 180) * (enemy.isBoss ? 1.2 : 0.8);
+      sprite.setPosition(enemy.x, enemy.y + bobY);
+      sprite.setDepth(32 + enemy.y * 0.05);
+      sprite.setTint(ENEMY_TINTS[enemy.typeId]);
+      sprite.setScale(enemy.isBoss ? 1.48 : 1);
+      sprite.setAlpha(1);
+    }
+
+    for (const [enemyId, sprite] of this.enemySprites.entries()) {
+      if (activeEnemyIds.has(enemyId)) {
+        continue;
+      }
+      sprite.destroy();
+      this.enemySprites.delete(enemyId);
+    }
+  }
+
+  private syncHeroSprites(snapshot: GameSnapshot): void {
+    const activeHeroIds = new Set<string>();
+
+    for (const hero of snapshot.heroes) {
+      activeHeroIds.add(hero.id);
+
+      let sprite = this.heroSprites.get(hero.id);
+      if (!sprite) {
+        sprite = this.add
+          .sprite(hero.x, hero.y, this.getHeroTextureKey(hero))
+          .setOrigin(0.5, 0.78);
+        this.heroSprites.set(hero.id, sprite);
+      }
+
+      sprite.setTexture(this.getHeroTextureKey(hero));
+      const bobY = hero.state === "alive" ? Math.sin((this.time.now + hero.x) / 210) * 0.8 : 0;
+      sprite.setPosition(hero.x, hero.y + bobY);
+      sprite.setDepth(34 + hero.y * 0.05);
+      sprite.setScale(hero.id === this.playerId ? 1.1 : 1);
+      sprite.setAlpha(hero.state === "dead" ? 0.86 : 1);
+
+      if (hero.id === this.playerId && hero.state === "alive") {
+        sprite.setTint(0xffefbe);
+      } else {
+        sprite.clearTint();
+      }
+    }
+
+    for (const [heroId, sprite] of this.heroSprites.entries()) {
+      if (activeHeroIds.has(heroId)) {
+        continue;
+      }
+      sprite.destroy();
+      this.heroSprites.delete(heroId);
+    }
+  }
+
+  private drawEnemyOverlays(enemies: EnemySnapshot[]): void {
+    for (const enemy of enemies) {
+      this.graphics.fillStyle(0x090807, 0.34);
+      this.graphics.fillEllipse(
+        enemy.x,
+        enemy.y + (enemy.isBoss ? 13 : 9),
+        enemy.isBoss ? 34 : 22,
+        enemy.isBoss ? 12 : 8,
+      );
+
+      if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
+        const pulse = 1 + Math.sin(this.time.now / 95) * 1.3;
+        this.graphics.lineStyle(2.5, 0xff9f4e, 0.95);
+        this.graphics.strokeCircle(enemy.x, enemy.y, 14 + pulse * 1.2);
+      }
+
+      if (enemy.isBoss) {
+        const phaseColor =
+          enemy.bossPhase >= 3 ? 0xff4e7c : enemy.bossPhase >= 2 ? 0xffa55a : 0xd78294;
+        this.graphics.lineStyle(2.5, phaseColor, 0.9);
+        this.graphics.strokeCircle(enemy.x, enemy.y - 1, 20 + enemy.bossPhase * 2);
+      }
+
+      if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
+        this.graphics.lineStyle(2, 0x7ad866, 0.85);
+        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
+      }
+
+      if (enemy.shockedRemainingMs > 0) {
+        this.graphics.lineStyle(2, 0x86ecff, 0.85);
+        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 21 : 15);
+      }
+
+      const hpRatio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
+      this.graphics.fillStyle(0x1f0f11, 0.95);
+      this.graphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26, 5, 2);
+      this.graphics.fillStyle(0x9cca74, 1);
+      this.graphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26 * hpRatio, 5, 2);
+    }
+  }
+
+  private drawHeroOverlays(heroes: HeroSnapshot[]): void {
+    for (const hero of heroes) {
+      const isLocalHero = hero.id === this.playerId;
+      this.graphics.fillStyle(0x090807, 0.3);
+      this.graphics.fillEllipse(hero.x, hero.y + 11, 24, 10);
+
+      this.graphics.lineStyle(
+        2,
+        isLocalHero ? 0xfaf3cc : 0xd7d7d7,
+        hero.state === "alive" ? 0.95 : 0.6,
+      );
+      this.graphics.strokeCircle(hero.x, hero.y, 11);
+
+      if (hero.state === "downed") {
+        const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / 2800 : 0;
+        this.graphics.lineStyle(2, 0x90f5a3, 0.9);
+        this.graphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
+      }
+
+      if (hero.state === "dead") {
+        this.graphics.lineStyle(2, 0x2e2727, 1);
+        this.graphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
+        this.graphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
+      }
+    }
+  }
+
+  private getHeroTextureKey(hero: HeroSnapshot): string {
+    if (hero.state === "dead") {
+      return HERO_TEXTURE_KEYS.dead;
+    }
+    if (hero.state === "downed") {
+      return HERO_TEXTURE_KEYS.downed;
+    }
+
+    const frame = Math.floor(this.time.now / 210) % HERO_TEXTURE_KEYS.alive.length;
+    return HERO_TEXTURE_KEYS.alive[frame];
+  }
+
+  private getEnemyTextureKey(enemy: EnemySnapshot): string {
+    if (enemy.isBoss) {
+      const frame = (Math.floor(this.time.now / 240) + enemy.id) % ENEMY_TEXTURE_KEYS.boss.length;
+      return ENEMY_TEXTURE_KEYS.boss[frame];
+    }
+
+    const cadence = enemy.typeId === "runner" ? 140 : 210;
+    const frame =
+      (Math.floor(this.time.now / cadence) + enemy.id) % ENEMY_TEXTURE_KEYS.common.length;
+    return ENEMY_TEXTURE_KEYS.common[frame];
+  }
+
+  private getTowerTextureKey(towerType: TowerTypeId): string {
+    switch (towerType) {
+      case "defender":
+        return TOWER_TEXTURE_KEYS.defender;
+      case "archer":
+        return TOWER_TEXTURE_KEYS.archer;
+      case "mage":
+      default:
+        return TOWER_TEXTURE_KEYS.mage;
+    }
+  }
+
+  private clearEntitySprites(): void {
+    for (const sprite of this.towerSprites.values()) {
+      sprite.destroy();
+    }
+    this.towerSprites.clear();
+
+    for (const sprite of this.enemySprites.values()) {
+      sprite.destroy();
+    }
+    this.enemySprites.clear();
+
+    for (const sprite of this.heroSprites.values()) {
+      sprite.destroy();
+    }
+    this.heroSprites.clear();
   }
 
   private drawPixelVignette(width: number, height: number): void {

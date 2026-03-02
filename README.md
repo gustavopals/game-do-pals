@@ -23,6 +23,8 @@ Monorepo inicial para um roguelite tower defense 2D com:
 - visual polish no cliente (menus animados, HUD estilizada, overlay de upgrade revisado)
 - suporte de idioma no cliente (`pt`/`en`) com toggle em tempo real e textos de gameplay localizados (skills/upgrades/raridade/status)
 - pass de direcao de arte 2D pixel top-down (terreno em tiles, trilhas com textura e contraste retro)
+- entidades renderizadas com sprites pixelados animados (heroi, torres, inimigos) sincronizados em runtime
+- pipeline de arte modular no cliente (`src/game/assets/*`) e mapa em camadas configuravel por JSON (`public/assets/maps/wardens-field.layers.json`)
 - Progressao basica entre runs (`packages/server/data/progression.json`)
 
 ## Rodando localmente
