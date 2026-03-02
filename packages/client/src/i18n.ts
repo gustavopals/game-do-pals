@@ -33,17 +33,20 @@ const DICTIONARY: Record<Locale, Dictionary> = {
     run_status_unknown: "DESCONHECIDO",
     play_again: "Jogar Novamente",
     main_menu: "Menu Principal",
-    downed_hint: "Pals Defence | CAIDO: {seconds}s para sangrar. Aproximacao de aliado revive.",
+    downed_hint: "Pals Defence | CAIDO: {seconds}s para sangrar. Aliado precisa aproximar e segurar V.",
     dead_hint: "Pals Defence | Heroi derrotado. Aguarde o fim da run ou reset.",
+    upgrade_pause_hint: "Pals Defence | Run pausada: escolha sua bencao runica.",
     intermission_hint:
       "Pals Defence | Preparacao {seconds}s para Onda {wave} | [SPACE] iniciar agora (+{bonus} ouro)",
     control_hint:
-      "Pals Defence | Torre [1][2][3] {tower} | Habilidade [Q] {skillQ} [E] {skillE} | Clique no slot para colocar torre | [R] reroll | {move}",
+      "Pals Defence | Torre [1][2][3] {tower} | Habilidade [Q] {skillQ} [E] {skillE} | Clique no slot para colocar torre | [R] reroll | {move} | {revive}",
     move_mode_off: "Mover Torre [F] OFF",
     move_mode_on: "Mover Torre [F] ON (clique torre > slot, custo {cost})",
     move_mode_selected: "Mover Torre [F] ON (slot alvo, custo {cost})",
+    revive_hold_hint: "Reviver [V] segurar",
     hud_line_one:
-      "Dificuldade {difficulty} | Onda {wave}/{totalWaves} | Fase {waveState} | Base {baseHp}/{baseMaxHp} | Inimigos {enemies}{boss}",
+      "Dificuldade {difficulty} | Onda {wave}/{totalWaves} | Fase {waveState}{pause} | Base {baseHp}/{baseMaxHp} | Inimigos {enemies}{boss}",
+    upgrade_pause_hud: " | PAUSADO UPGRADE",
     hud_state:
       "Estado {state} | HP {hp}/{maxHp} | Ouro {gold} | Rerolls {rerolls} | Lv {level} | XP {xp}/{nextXp} | Torres {towers}/{maxTowers}",
     wave_state_spawning: "combate ({remaining} para spawn)",
@@ -107,17 +110,20 @@ const DICTIONARY: Record<Locale, Dictionary> = {
     run_status_unknown: "UNKNOWN",
     play_again: "Play Again",
     main_menu: "Main Menu",
-    downed_hint: "Pals Defence | DOWNED: {seconds}s to bleed out. Ally proximity revives.",
+    downed_hint: "Pals Defence | DOWNED: {seconds}s to bleed out. Ally must stay close and hold V.",
     dead_hint: "Pals Defence | Hero defeated. Wait for run reset or finish.",
+    upgrade_pause_hint: "Pals Defence | Run paused: choose your runic blessing.",
     intermission_hint:
       "Pals Defence | Prep {seconds}s for Wave {wave} | [SPACE] start now (+{bonus} gold)",
     control_hint:
-      "Pals Defence | Tower [1][2][3] {tower} | Skill [Q] {skillQ} [E] {skillE} | Click a slot to place tower | [R] reroll | {move}",
+      "Pals Defence | Tower [1][2][3] {tower} | Skill [Q] {skillQ} [E] {skillE} | Click a slot to place tower | [R] reroll | {move} | {revive}",
     move_mode_off: "Move Tower [F] OFF",
     move_mode_on: "Move Tower [F] ON (click tower > slot, cost {cost})",
     move_mode_selected: "Move Tower [F] ON (target a slot, cost {cost})",
+    revive_hold_hint: "Revive [V] hold",
     hud_line_one:
-      "Difficulty {difficulty} | Wave {wave}/{totalWaves} | Phase {waveState} | Base {baseHp}/{baseMaxHp} | Enemies {enemies}{boss}",
+      "Difficulty {difficulty} | Wave {wave}/{totalWaves} | Phase {waveState}{pause} | Base {baseHp}/{baseMaxHp} | Enemies {enemies}{boss}",
+    upgrade_pause_hud: " | UPGRADE PAUSED",
     hud_state:
       "State {state} | HP {hp}/{maxHp} | Gold {gold} | Rerolls {rerolls} | Lv {level} | XP {xp}/{nextXp} | Towers {towers}/{maxTowers}",
     wave_state_spawning: "combat ({remaining} left)",

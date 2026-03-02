@@ -89,6 +89,42 @@ const REVIVE_DECAY_FACTOR = 0.7;
 const ARCANE_BOLT_SHOCK_MS = 2800;
 const AETHER_PULSE_POISON_MS = 5200;
 const EARLY_WAVE_BONUS_INTERVAL_MS = 500;
+const REVIVE_REQUIRED_MS_BY_PARTY_SIZE: Record<number, number> = {
+  1: REVIVE_REQUIRED_MS,
+  2: 3000,
+  3: 3900,
+  4: 4700,
+};
+const DOWNED_BLEEDOUT_MS_BY_PARTY_SIZE: Record<number, number> = {
+  1: DOWNED_BLEEDOUT_MS,
+  2: 12500,
+  3: 14500,
+  4: 17000,
+};
+const REVIVE_DECAY_FACTOR_BY_PARTY_SIZE: Record<number, number> = {
+  1: REVIVE_DECAY_FACTOR,
+  2: 0.75,
+  3: 0.82,
+  4: 0.9,
+};
+const REVIVE_HELPER_STRENGTH_FALLOFF = [1, 0.6, 0.4, 0.25];
+const STARTING_GOLD_BY_DIFFICULTY: Record<DifficultyPreset, number> = {
+  easy: 100,
+  normal: 90,
+  hard: 82,
+};
+const PARTY_GOLD_REWARD_SCALE_BY_SIZE: Record<number, number> = {
+  1: 1,
+  2: 0.84,
+  3: 0.72,
+  4: 0.64,
+};
+const PARTY_XP_REWARD_SCALE_BY_SIZE: Record<number, number> = {
+  1: 1,
+  2: 0.92,
+  3: 0.86,
+  4: 0.8,
+};
 
 export class GameRoom {
   private readonly map = DEFAULT_MAP;
@@ -183,6 +219,7 @@ export class GameRoom {
       case "input": {
         session.hero.inputDx = this.clamp(payload.dx, -1, 1);
         session.hero.inputDy = this.clamp(payload.dy, -1, 1);
+        session.hero.reviveInput = Boolean(payload.revive);
         break;
       }
       case "placeTower": {
@@ -272,7 +309,12 @@ export class GameRoom {
     towerTypeId: Extract<ClientMessage, { type: "placeTower" }>['towerTypeId'],
     slotIndex: number,
   ): void {
-    if (this.runStatus !== "running" || hero.state !== "alive" || hero.hp <= 0) {
+    if (
+      this.runStatus !== "running" ||
+      this.hasUpgradeSelectionPause() ||
+      hero.state !== "alive" ||
+      hero.hp <= 0
+    ) {
       return;
     }
 
@@ -323,7 +365,12 @@ export class GameRoom {
   }
 
   private handleTowerRelocation(hero: HeroRuntime, towerId: number, slotIndex: number): void {
-    if (this.runStatus !== "running" || hero.state !== "alive" || hero.hp <= 0) {
+    if (
+      this.runStatus !== "running" ||
+      this.hasUpgradeSelectionPause() ||
+      hero.state !== "alive" ||
+      hero.hp <= 0
+    ) {
       return;
     }
 
@@ -438,7 +485,13 @@ export class GameRoom {
     targetX: number,
     targetY: number,
   ): void {
-    if (this.runStatus !== "running" || hero.pendingUpgradeOptions || hero.state !== "alive" || hero.hp <= 0) {
+    if (
+      this.runStatus !== "running" ||
+      this.hasUpgradeSelectionPause() ||
+      hero.pendingUpgradeOptions ||
+      hero.state !== "alive" ||
+      hero.hp <= 0
+    ) {
       return;
     }
 
@@ -519,7 +572,7 @@ export class GameRoom {
 
   private handleStartNextWave(playerId: string): void {
     const session = this.playersById.get(playerId);
-    if (!session || this.runStatus !== "running") {
+    if (!session || this.runStatus !== "running" || this.hasUpgradeSelectionPause()) {
       return;
     }
 
@@ -551,7 +604,7 @@ export class GameRoom {
     this.tick += 1;
     this.elapsedMs += deltaMs;
 
-    if (this.runStatus === "running") {
+    if (this.runStatus === "running" && !this.hasUpgradeSelectionPause()) {
       this.updateHeroCooldowns(deltaMs);
       this.updateHeroMovement(deltaMs);
 
@@ -620,6 +673,8 @@ export class GameRoom {
       } else if (this.waveSystem.done && this.enemies.length === 0) {
         this.endRun("won");
       }
+    } else if (this.runStatus === "running") {
+      this.clearReviveVisualState();
     }
 
     this.broadcastState();
@@ -632,6 +687,13 @@ export class GameRoom {
     for (const session of this.playersById.values()) {
       const hero = session.hero;
       if (hero.state !== "alive" || hero.hp <= 0) {
+        hero.reviveInput = false;
+        hero.isReviving = false;
+        hero.reviveTargetId = null;
+        continue;
+      }
+
+      if (hero.reviveInput) {
         continue;
       }
 
@@ -655,6 +717,14 @@ export class GameRoom {
       for (const skillId of Object.keys(hero.skillCooldownsMs) as HeroSkillId[]) {
         hero.skillCooldownsMs[skillId] = Math.max(0, hero.skillCooldownsMs[skillId] - deltaMs);
       }
+    }
+  }
+
+  private clearReviveVisualState(): void {
+    for (const session of this.playersById.values()) {
+      session.hero.isReviving = false;
+      session.hero.reviveTargetId = null;
+      session.hero.reviveInput = false;
     }
   }
 
@@ -784,6 +854,62 @@ export class GameRoom {
     return !this.hasLivingHeroes() && !this.hasDownedHeroes();
   }
 
+  private hasUpgradeSelectionPause(): boolean {
+    for (const session of this.playersById.values()) {
+      const pending = session.hero.pendingUpgradeOptions;
+      if (pending && pending.length > 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private getPartySizeForReviveTuning(): number {
+    return Math.max(1, Math.min(4, this.playersById.size));
+  }
+
+  private getReviveRequiredMs(): number {
+    const partySize = this.getPartySizeForReviveTuning();
+    return REVIVE_REQUIRED_MS_BY_PARTY_SIZE[partySize] ?? REVIVE_REQUIRED_MS;
+  }
+
+  private getDownedBleedoutMs(): number {
+    const partySize = this.getPartySizeForReviveTuning();
+    return DOWNED_BLEEDOUT_MS_BY_PARTY_SIZE[partySize] ?? DOWNED_BLEEDOUT_MS;
+  }
+
+  private getReviveDecayFactor(): number {
+    const partySize = this.getPartySizeForReviveTuning();
+    return REVIVE_DECAY_FACTOR_BY_PARTY_SIZE[partySize] ?? REVIVE_DECAY_FACTOR;
+  }
+
+  private getEffectiveReviveHelperStrength(helperCount: number): number {
+    if (helperCount <= 0) {
+      return 0;
+    }
+
+    let strength = 0;
+    for (let index = 0; index < helperCount; index += 1) {
+      const falloff =
+        REVIVE_HELPER_STRENGTH_FALLOFF[index] ??
+        REVIVE_HELPER_STRENGTH_FALLOFF[REVIVE_HELPER_STRENGTH_FALLOFF.length - 1] * 0.65;
+      strength += falloff;
+    }
+
+    return Math.max(0, strength);
+  }
+
+  private getPartyGoldRewardScale(): number {
+    const size = this.getPartySizeForReviveTuning();
+    return PARTY_GOLD_REWARD_SCALE_BY_SIZE[size] ?? PARTY_GOLD_REWARD_SCALE_BY_SIZE[4];
+  }
+
+  private getPartyXpRewardScale(): number {
+    const size = this.getPartySizeForReviveTuning();
+    return PARTY_XP_REWARD_SCALE_BY_SIZE[size] ?? PARTY_XP_REWARD_SCALE_BY_SIZE[4];
+  }
+
   private applyDownedStateTransitions(): void {
     for (const session of this.playersById.values()) {
       const hero = session.hero;
@@ -791,7 +917,10 @@ export class GameRoom {
       if (hero.state === "alive" && hero.hp <= 0) {
         hero.hp = 0;
         hero.state = "downed";
-        hero.downedRemainingMs = DOWNED_BLEEDOUT_MS;
+        hero.isReviving = false;
+        hero.reviveTargetId = null;
+        hero.reviveInput = false;
+        hero.downedRemainingMs = this.getDownedBleedoutMs();
         hero.reviveProgressMs = 0;
         hero.inputDx = 0;
         hero.inputDy = 0;
@@ -799,6 +928,9 @@ export class GameRoom {
 
       if (hero.state === "dead") {
         hero.hp = 0;
+        hero.isReviving = false;
+        hero.reviveTargetId = null;
+        hero.reviveInput = false;
         hero.inputDx = 0;
         hero.inputDy = 0;
       }
@@ -808,9 +940,53 @@ export class GameRoom {
   private updateDownedReviveSystem(deltaMs: number): void {
     const heroes = [...this.playersById.values()].map((session) => session.hero);
     const aliveHeroes = heroes.filter((hero) => hero.state === "alive" && hero.hp > 0);
+    const downedHeroes = heroes.filter((hero) => hero.state === "downed");
+    const reviveRequiredMs = this.getReviveRequiredMs();
+    const reviveDecayFactor = this.getReviveDecayFactor();
+
+    for (const hero of aliveHeroes) {
+      hero.isReviving = false;
+      hero.reviveTargetId = null;
+    }
+
+    const helpersByTargetId = new Map<string, number>();
+    for (const reviver of aliveHeroes) {
+      if (!reviver.reviveInput) {
+        continue;
+      }
+
+      let target: HeroRuntime | null = null;
+      let targetDistance = Number.POSITIVE_INFINITY;
+
+      for (const downedHero of downedHeroes) {
+        if (downedHero.id === reviver.id) {
+          continue;
+        }
+
+        const distance = Math.hypot(reviver.x - downedHero.x, reviver.y - downedHero.y);
+        if (distance > REVIVE_RANGE || distance >= targetDistance) {
+          continue;
+        }
+
+        target = downedHero;
+        targetDistance = distance;
+      }
+
+      if (!target) {
+        continue;
+      }
+
+      reviver.isReviving = true;
+      reviver.reviveTargetId = target.id;
+      helpersByTargetId.set(target.id, (helpersByTargetId.get(target.id) ?? 0) + 1);
+    }
 
     for (const hero of heroes) {
       if (hero.state !== "downed") {
+        if (hero.state !== "alive") {
+          hero.isReviving = false;
+          hero.reviveTargetId = null;
+        }
         continue;
       }
 
@@ -821,27 +997,21 @@ export class GameRoom {
         continue;
       }
 
-      let helpers = 0;
-      for (const reviver of aliveHeroes) {
-        if (reviver.id === hero.id) {
-          continue;
-        }
+      const helpers = helpersByTargetId.get(hero.id) ?? 0;
+      const helperStrength = this.getEffectiveReviveHelperStrength(helpers);
 
-        const distance = Math.hypot(reviver.x - hero.x, reviver.y - hero.y);
-        if (distance <= REVIVE_RANGE) {
-          helpers += 1;
-        }
-      }
-
-      if (helpers > 0) {
+      if (helperStrength > 0) {
         hero.reviveProgressMs = Math.min(
-          REVIVE_REQUIRED_MS,
-          hero.reviveProgressMs + deltaMs * helpers,
+          reviveRequiredMs,
+          hero.reviveProgressMs + deltaMs * helperStrength,
         );
 
-        if (hero.reviveProgressMs >= REVIVE_REQUIRED_MS) {
+        if (hero.reviveProgressMs >= reviveRequiredMs) {
           hero.state = "alive";
           hero.hp = Math.max(1, Math.round(hero.maxHp * 0.4));
+          hero.reviveInput = false;
+          hero.isReviving = false;
+          hero.reviveTargetId = null;
           hero.downedRemainingMs = 0;
           hero.reviveProgressMs = 0;
           hero.inputDx = 0;
@@ -850,7 +1020,7 @@ export class GameRoom {
       } else {
         hero.reviveProgressMs = Math.max(
           0,
-          hero.reviveProgressMs - deltaMs * REVIVE_DECAY_FACTOR,
+          hero.reviveProgressMs - deltaMs * reviveDecayFactor,
         );
       }
     }
@@ -863,6 +1033,10 @@ export class GameRoom {
 
     const defeatedEnemies = this.enemies.filter((enemy) => defeatedEnemyIds.has(enemy.id));
     const heroes = [...this.playersById.values()].map((session) => session.hero);
+    const partyGoldScale = this.getPartyGoldRewardScale();
+    const partyXpScale = this.getPartyXpRewardScale();
+    const difficultyGoldScale = this.difficultyBalance.enemyGoldRewardMultiplier;
+    const difficultyXpScale = this.difficultyBalance.enemyXpRewardMultiplier;
 
     for (const enemy of defeatedEnemies) {
       for (const hero of heroes) {
@@ -870,11 +1044,23 @@ export class GameRoom {
           continue;
         }
 
-        const rewardedGold = Math.round(enemy.rewardGold * hero.goldGainMultiplier);
+        const rewardedGold = Math.max(
+          1,
+          Math.round(
+            enemy.rewardGold *
+              difficultyGoldScale *
+              partyGoldScale *
+              hero.goldGainMultiplier,
+          ),
+        );
+        const rewardedXp = Math.max(
+          1,
+          Math.round(enemy.rewardXp * difficultyXpScale * partyXpScale),
+        );
 
         hero.gold += rewardedGold;
         hero.totalGoldEarned += rewardedGold;
-        hero.xp += enemy.rewardXp;
+        hero.xp += rewardedXp;
       }
     }
 
@@ -1076,6 +1262,8 @@ export class GameRoom {
       x: this.map.heroSpawn.x,
       y: this.map.heroSpawn.y,
       state: "alive",
+      isReviving: false,
+      reviveTargetId: null,
       hp: HERO_BASE_MAX_HP,
       maxHp: HERO_BASE_MAX_HP,
       moveSpeed: HERO_BASE_MOVE_SPEED,
@@ -1085,13 +1273,14 @@ export class GameRoom {
       level: 1,
       xp: 0,
       nextLevelXp: this.getNextLevelXp(1),
-      gold: 90,
+      gold: STARTING_GOLD_BY_DIFFICULTY[this.difficulty],
       maxTowers: INITIAL_TOWER_CAP,
       skills: [],
       downedRemainingMs: 0,
       reviveProgressMs: 0,
       inputDx: 0,
       inputDy: 0,
+      reviveInput: false,
       attackCooldownLeftMs: 200,
       towerDamageMultiplier: 1,
       towerCooldownMultiplier: 1,
@@ -1125,8 +1314,10 @@ export class GameRoom {
       wave: this.waveSystem.currentWave,
       totalWaves: MAX_WAVES,
       waveState: this.waveSystem.waveState,
+      isUpgradeSelectionPhase: this.hasUpgradeSelectionPause(),
       intermissionRemainingMs: this.waveSystem.intermissionRemainingMs,
       remainingWaveSpawns: this.waveSystem.remainingWaveSpawns,
+      reviveRequiredMs: this.getReviveRequiredMs(),
       runStatus: this.runStatus,
       baseHp: this.baseHp,
       baseMaxHp: this.baseMaxHp,
@@ -1144,6 +1335,8 @@ export class GameRoom {
       x: hero.x,
       y: hero.y,
       state: hero.state,
+      isReviving: hero.isReviving,
+      reviveTargetId: hero.reviveTargetId,
       hp: hero.hp,
       maxHp: hero.maxHp,
       moveSpeed: hero.moveSpeed,

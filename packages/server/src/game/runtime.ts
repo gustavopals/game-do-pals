@@ -10,6 +10,7 @@ import type {
 export interface HeroRuntime extends HeroSnapshot {
   inputDx: number;
   inputDy: number;
+  reviveInput: boolean;
   attackCooldownLeftMs: number;
   towerDamageMultiplier: number;
   towerCooldownMultiplier: number;

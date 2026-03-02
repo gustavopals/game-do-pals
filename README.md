@@ -58,10 +58,12 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 - `Q`: Arcane Bolt (skill ativa)
 - `E`: Aether Pulse (skill ativa)
 - `R`: reroll das opcoes de upgrade (consome 1 token)
+- `V` (segurar): reviver aliado `DOWNED` dentro do alcance
 - `F`: ativa/desativa modo de reposicionar torre (clique em torre sua e depois no slot alvo, custo `12` de ouro)
 - `SPACE`: durante a preparacao, chama a proxima onda e concede bonus de ouro imediato
+- Ao abrir escolha de upgrade/benção, a run pausa ate a decisao
 - Escolha de upgrade: clique no card
-- Revive coop: aproxime de um aliado `DOWNED` para reviver automaticamente
+- Revive coop: aproxime de um aliado `DOWNED` e segure `V` para reviver
 
 ## Fluxo de telas
 

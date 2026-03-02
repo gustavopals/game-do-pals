@@ -6,6 +6,8 @@ export interface DifficultyBalanceProfile {
   enemyContactDamageMultiplier: number;
   enemyAttackDamageMultiplier: number;
   enemyAttackCooldownMultiplier: number;
+  enemyGoldRewardMultiplier: number;
+  enemyXpRewardMultiplier: number;
   eliteEmpowerDurationMs: number;
   eliteEmpowerCooldownMinMs: number;
   eliteEmpowerCooldownMaxMs: number;
@@ -32,11 +34,13 @@ export const DEFAULT_DIFFICULTY: DifficultyPreset = "normal";
 
 export const DIFFICULTY_BALANCE: Record<DifficultyPreset, DifficultyBalanceProfile> = {
   easy: {
-    enemyHpMultiplier: 0.82,
+    enemyHpMultiplier: 0.8,
     enemySpeedMultiplier: 0.9,
     enemyContactDamageMultiplier: 0.8,
     enemyAttackDamageMultiplier: 0.82,
     enemyAttackCooldownMultiplier: 1.18,
+    enemyGoldRewardMultiplier: 1.18,
+    enemyXpRewardMultiplier: 1.12,
     eliteEmpowerDurationMs: 1200,
     eliteEmpowerCooldownMinMs: 5300,
     eliteEmpowerCooldownMaxMs: 7300,
@@ -64,6 +68,8 @@ export const DIFFICULTY_BALANCE: Record<DifficultyPreset, DifficultyBalanceProfi
     enemyContactDamageMultiplier: 1,
     enemyAttackDamageMultiplier: 1,
     enemyAttackCooldownMultiplier: 1,
+    enemyGoldRewardMultiplier: 1,
+    enemyXpRewardMultiplier: 1,
     eliteEmpowerDurationMs: 1600,
     eliteEmpowerCooldownMinMs: 4200,
     eliteEmpowerCooldownMaxMs: 6200,
@@ -71,9 +77,9 @@ export const DIFFICULTY_BALANCE: Record<DifficultyPreset, DifficultyBalanceProfi
     eliteEmpowerDamageBonus: 3,
     bossAttackRangePhase2: 60,
     bossAttackRangePhase3: 80,
-    bossDamagePhase1: 18,
-    bossDamagePhase2: 24,
-    bossDamagePhase3: 30,
+    bossDamagePhase1: 17,
+    bossDamagePhase2: 23,
+    bossDamagePhase3: 28,
     bossAttackCooldownPhase1Ms: 1200,
     bossAttackCooldownPhase2Ms: 1000,
     bossAttackCooldownPhase3Ms: 850,
@@ -82,15 +88,17 @@ export const DIFFICULTY_BALANCE: Record<DifficultyPreset, DifficultyBalanceProfi
     bossSummonCountPhase2: 2,
     bossSummonCountPhase3: 3,
     bossShockwaveCooldownMs: 3800,
-    bossShockwaveDamage: 22,
+    bossShockwaveDamage: 20,
     bossShockwaveRadius: 145,
   },
   hard: {
-    enemyHpMultiplier: 1.26,
+    enemyHpMultiplier: 1.22,
     enemySpeedMultiplier: 1.12,
     enemyContactDamageMultiplier: 1.28,
     enemyAttackDamageMultiplier: 1.25,
     enemyAttackCooldownMultiplier: 0.86,
+    enemyGoldRewardMultiplier: 0.9,
+    enemyXpRewardMultiplier: 0.95,
     eliteEmpowerDurationMs: 2200,
     eliteEmpowerCooldownMinMs: 3300,
     eliteEmpowerCooldownMaxMs: 4700,
@@ -98,18 +106,18 @@ export const DIFFICULTY_BALANCE: Record<DifficultyPreset, DifficultyBalanceProfi
     eliteEmpowerDamageBonus: 5,
     bossAttackRangePhase2: 74,
     bossAttackRangePhase3: 96,
-    bossDamagePhase1: 22,
-    bossDamagePhase2: 30,
-    bossDamagePhase3: 40,
-    bossAttackCooldownPhase1Ms: 980,
-    bossAttackCooldownPhase2Ms: 820,
-    bossAttackCooldownPhase3Ms: 680,
+    bossDamagePhase1: 21,
+    bossDamagePhase2: 29,
+    bossDamagePhase3: 36,
+    bossAttackCooldownPhase1Ms: 1000,
+    bossAttackCooldownPhase2Ms: 840,
+    bossAttackCooldownPhase3Ms: 720,
     bossSummonCooldownPhase2Ms: 4800,
     bossSummonCooldownPhase3Ms: 3300,
     bossSummonCountPhase2: 3,
-    bossSummonCountPhase3: 4,
+    bossSummonCountPhase3: 3,
     bossShockwaveCooldownMs: 2900,
-    bossShockwaveDamage: 30,
+    bossShockwaveDamage: 28,
     bossShockwaveRadius: 165,
   },
 };

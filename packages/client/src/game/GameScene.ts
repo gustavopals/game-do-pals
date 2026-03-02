@@ -114,6 +114,7 @@ export class GameScene extends Phaser.Scene {
     q: Phaser.Input.Keyboard.Key;
     e: Phaser.Input.Keyboard.Key;
     r: Phaser.Input.Keyboard.Key;
+    v: Phaser.Input.Keyboard.Key;
     f: Phaser.Input.Keyboard.Key;
     space: Phaser.Input.Keyboard.Key;
     one: Phaser.Input.Keyboard.Key;
@@ -203,6 +204,7 @@ export class GameScene extends Phaser.Scene {
       q: Phaser.Input.Keyboard.KeyCodes.Q,
       e: Phaser.Input.Keyboard.KeyCodes.E,
       r: Phaser.Input.Keyboard.KeyCodes.R,
+      v: Phaser.Input.Keyboard.KeyCodes.V,
       f: Phaser.Input.Keyboard.KeyCodes.F,
       space: Phaser.Input.Keyboard.KeyCodes.SPACE,
       one: Phaser.Input.Keyboard.KeyCodes.ONE,
@@ -240,6 +242,8 @@ export class GameScene extends Phaser.Scene {
           } else if (localHero?.state === "downed") {
             const seconds = Math.ceil(localHero.downedRemainingMs / 1000);
             this.statusText.setText(tr(this.locale, "downed_hint", { seconds }));
+          } else if (snapshot.isUpgradeSelectionPhase) {
+            this.statusText.setText(tr(this.locale, "upgrade_pause_hint"));
           } else if (snapshot.waveState === "intermission") {
             this.statusText.setText(this.getIntermissionHintText(snapshot));
           } else {
@@ -300,6 +304,7 @@ export class GameScene extends Phaser.Scene {
       this.screenMode === "playing" &&
       Boolean(this.snapshot) &&
       this.snapshot?.runStatus === "running" &&
+      !this.snapshot?.isUpgradeSelectionPhase &&
       isLocalHeroAlive;
 
     if (Phaser.Input.Keyboard.JustDown(this.keys.one)) {
@@ -332,11 +337,12 @@ export class GameScene extends Phaser.Scene {
 
     const dx = canAct ? Number(this.keys.d.isDown) - Number(this.keys.a.isDown) : 0;
     const dy = canAct ? Number(this.keys.s.isDown) - Number(this.keys.w.isDown) : 0;
+    const revive = canAct && this.keys.v.isDown;
 
     this.inputSendAccumulatorMs += deltaMs;
     if (this.inputSendAccumulatorMs >= 50) {
       this.inputSendAccumulatorMs = 0;
-      this.client.sendInput(dx, dy);
+      this.client.sendInput(dx, dy, revive);
     }
   }
 
@@ -349,7 +355,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryPlaceTower(x: number, y: number): void {
-    if (this.screenMode !== "playing" || !this.snapshot || this.snapshot.runStatus !== "running") {
+    if (
+      this.screenMode !== "playing" ||
+      !this.snapshot ||
+      this.snapshot.runStatus !== "running" ||
+      this.snapshot.isUpgradeSelectionPhase
+    ) {
       return;
     }
     const localHero = this.getLocalHero();
@@ -370,7 +381,12 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    if (this.screenMode !== "playing" || !this.snapshot || this.snapshot.runStatus !== "running") {
+    if (
+      this.screenMode !== "playing" ||
+      !this.snapshot ||
+      this.snapshot.runStatus !== "running" ||
+      this.snapshot.isUpgradeSelectionPhase
+    ) {
       return false;
     }
 
@@ -456,7 +472,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryStartNextWave(): void {
-    if (this.screenMode !== "playing" || !this.snapshot || this.snapshot.runStatus !== "running") {
+    if (
+      this.screenMode !== "playing" ||
+      !this.snapshot ||
+      this.snapshot.runStatus !== "running" ||
+      this.snapshot.isUpgradeSelectionPhase
+    ) {
       return;
     }
 
@@ -651,6 +672,9 @@ export class GameScene extends Phaser.Scene {
     const boss = this.snapshot.enemies.find((enemy) => enemy.isBoss);
     const bossInfo = boss ? tr(this.locale, "boss_phase", { phase: boss.bossPhase }) : "";
     const waveState = this.getWaveStateLabel(this.snapshot);
+    const pauseInfo = this.snapshot.isUpgradeSelectionPhase
+      ? tr(this.locale, "upgrade_pause_hud")
+      : "";
 
     const skillsInfo = hero
       ? hero.skills
@@ -674,12 +698,15 @@ export class GameScene extends Phaser.Scene {
           baseMaxHp: this.snapshot.baseMaxHp,
           enemies: this.snapshot.enemies.length,
           boss: bossInfo,
+          pause: pauseInfo,
         }),
         heroInfo,
         hero?.state === "downed"
           ? tr(this.locale, "downed_progress", {
               seconds: Math.ceil(hero.downedRemainingMs / 1000),
-              progress: Math.round((hero.reviveProgressMs / 2800) * 100),
+              progress: Math.round(
+                (hero.reviveProgressMs / Math.max(1, this.snapshot.reviveRequiredMs)) * 100,
+              ),
             })
           : "",
         skillsInfo,
@@ -980,6 +1007,8 @@ export class GameScene extends Phaser.Scene {
             seconds: Math.ceil(localHero.downedRemainingMs / 1000),
           }),
         );
+      } else if (this.snapshot.isUpgradeSelectionPhase) {
+        this.statusText.setText(tr(this.locale, "upgrade_pause_hint"));
       } else if (this.snapshot.waveState === "intermission") {
         this.statusText.setText(this.getIntermissionHintText(this.snapshot));
       } else {
@@ -1018,6 +1047,7 @@ export class GameScene extends Phaser.Scene {
       skillQ: trSkillName(this.locale, "arcaneBolt", "Arcane Bolt"),
       skillE: trSkillName(this.locale, "aetherPulse", "Aether Pulse"),
       move: this.getTowerMoveHintText(),
+      revive: tr(this.locale, "revive_hold_hint"),
     });
   }
 
@@ -1114,6 +1144,7 @@ export class GameScene extends Phaser.Scene {
     const isVisible =
       this.screenMode === "playing" &&
       snapshot.runStatus === "running" &&
+      !snapshot.isUpgradeSelectionPhase &&
       snapshot.waveState === "intermission";
     this.waveActionContainer.setVisible(isVisible);
     if (!isVisible) {
@@ -1473,6 +1504,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawHeroOverlays(heroes: HeroSnapshot[]): void {
+    const downedById = new Map(
+      heroes
+        .filter((hero) => hero.state === "downed")
+        .map((hero) => [hero.id, hero]),
+    );
+
     for (const hero of heroes) {
       const isLocalHero = hero.id === this.playerId;
       this.graphics.fillStyle(0x090807, 0.3);
@@ -1486,7 +1523,8 @@ export class GameScene extends Phaser.Scene {
       this.graphics.strokeCircle(hero.x, hero.y, 11);
 
       if (hero.state === "downed") {
-        const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / 2800 : 0;
+        const reviveRequiredMs = Math.max(1, this.snapshot?.reviveRequiredMs ?? 2800);
+        const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / reviveRequiredMs : 0;
         this.graphics.lineStyle(2, 0x90f5a3, 0.9);
         this.graphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
       }
@@ -1495,6 +1533,20 @@ export class GameScene extends Phaser.Scene {
         this.graphics.lineStyle(2, 0x2e2727, 1);
         this.graphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
         this.graphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
+      }
+
+      if (hero.state === "alive" && hero.isReviving && hero.reviveTargetId) {
+        const target = downedById.get(hero.reviveTargetId);
+        if (!target) {
+          continue;
+        }
+
+        const pulse = 0.5 + Math.sin(this.time.now / 95) * 0.5;
+        this.graphics.lineStyle(2.4, 0x93ffce, 0.9);
+        this.graphics.lineBetween(hero.x, hero.y - 1, target.x, target.y - 1);
+        this.graphics.lineStyle(1.4, 0xe5fff5, 0.75);
+        this.graphics.strokeCircle(hero.x, hero.y - 2, 12 + pulse * 1.5);
+        this.graphics.strokeCircle(target.x, target.y - 2, 13 + pulse * 2.1);
       }
     }
   }

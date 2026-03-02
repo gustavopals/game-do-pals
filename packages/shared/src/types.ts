@@ -34,6 +34,8 @@ export interface HeroSnapshot {
   x: number;
   y: number;
   state: HeroState;
+  isReviving: boolean;
+  reviveTargetId: string | null;
   hp: number;
   maxHp: number;
   moveSpeed: number;
@@ -90,8 +92,10 @@ export interface GameSnapshot {
   wave: number;
   totalWaves: number;
   waveState: "spawning" | "intermission" | "completed";
+  isUpgradeSelectionPhase: boolean;
   intermissionRemainingMs: number;
   remainingWaveSpawns: number;
+  reviveRequiredMs: number;
   runStatus: "running" | "won" | "lost";
   baseHp: number;
   baseMaxHp: number;
@@ -210,6 +214,7 @@ export type ClientMessage =
       type: "input";
       dx: number;
       dy: number;
+      revive: boolean;
     }
   | {
       type: "placeTower";

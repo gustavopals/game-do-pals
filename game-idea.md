@@ -67,11 +67,13 @@ Inspiracao de atmosfera e leitura visual:
   - chain lightning
 - Elite com empower temporal
 - Boss com fases, summon e shockwave
+- Pass de balance recente em stats base, pressao de boss e pacing de ondas
 
 ### 3.5 Roguelite upgrades
 
 - Pool de upgrades com raridade
 - Escolha de 1 entre 3 opcoes
+- A run pausa durante escolha de bencao para decisao sem pressao
 - Reroll de upgrades com tokens
 - Upgrades focados em dano, velocidade, economia e sinergias
 
@@ -79,7 +81,8 @@ Inspiracao de atmosfera e leitura visual:
 
 - Estados de heroi: `alive`, `downed`, `dead`
 - Bleedout para downed
-- Revive por proximidade de aliado
+- Revive manual por proximidade + segurar tecla (com VFX de conexao)
+- Balance tuning por tamanho de equipe (duo/squad) para tempo de revive e janela de bleedout
 
 ### 3.7 Wave pacing
 
@@ -87,6 +90,14 @@ Inspiracao de atmosfera e leitura visual:
 - Intermission entre ondas
 - Novo: `SPACE` chama proxima onda antecipadamente
 - Bonus de ouro imediato ao antecipar
+- Curva de ondas recalibrada (early mais legivel, mid/late mais consistente)
+
+### 3.11 Economy tuning
+
+- Recompensas de ouro/XP ajustadas por tipo de inimigo
+- Escala de recompensa por dificuldade (`easy`, `normal`, `hard`)
+- Escala de recompensa por tamanho do grupo para evitar inflacao em co-op
+- Ouro inicial ajustado por dificuldade para manter ritmo de abertura da run
 
 ### 3.8 UX/UI and screens
 
@@ -213,10 +224,10 @@ Fases seguintes:
 ## 10. Short-Term Backlog (next steps)
 
 1. Refinar reposicionamento de torres (feedback visual, custo dinamico, UX).
-2. Revive manual (segurar tecla) com VFX dedicado.
-3. Balance pass de inimigos, boss e economia de ouro.
-4. Tooltips/context panel para status e efeitos.
-5. Primeira camada de audio (SFX essenciais).
+2. Tooltips/context panel para status e efeitos.
+3. Primeira camada de audio (SFX essenciais).
+4. Telemetria simples de run para orientar ajustes de balance.
+5. Pass de UX para onboarding de controles avancados (move tower, revive manual, reroll, call wave).
 
 ## 11. Final Polish Backlog
 

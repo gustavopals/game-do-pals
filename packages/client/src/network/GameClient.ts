@@ -102,11 +102,12 @@ export class GameClient {
     this.handlers = { ...this.handlers, ...handlers };
   }
 
-  sendInput(dx: number, dy: number): void {
+  sendInput(dx: number, dy: number, revive: boolean): void {
     this.send({
       type: "input",
       dx,
       dy,
+      revive,
     });
   }
 

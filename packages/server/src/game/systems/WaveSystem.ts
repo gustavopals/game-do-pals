@@ -134,33 +134,33 @@ export class WaveSystem {
     switch (wave) {
       case 1:
         return {
-          count: 12,
-          intervalMs: 900,
-          pool: ["swarm", "swarm", "swarm", "ranged", "runner"],
+          count: 10,
+          intervalMs: 980,
+          pool: ["swarm", "swarm", "swarm", "swarm", "ranged", "runner"],
         };
       case 2:
         return {
-          count: 16,
-          intervalMs: 840,
-          pool: ["swarm", "ranged", "runner", "armored"],
+          count: 14,
+          intervalMs: 900,
+          pool: ["swarm", "swarm", "ranged", "runner", "armored"],
         };
       case 3:
         return {
-          count: 20,
-          intervalMs: 790,
-          pool: ["swarm", "ranged", "runner", "armored", "elite"],
+          count: 18,
+          intervalMs: 840,
+          pool: ["swarm", "ranged", "runner", "armored", "armored", "elite"],
         };
       case 4:
         return {
-          count: 24,
-          intervalMs: 760,
+          count: 22,
+          intervalMs: 790,
           pool: ["swarm", "ranged", "runner", "armored", "elite", "elite"],
         };
       case 5:
         return {
-          count: 28,
-          intervalMs: 730,
-          pool: ["swarm", "ranged", "runner", "armored", "elite", "elite"],
+          count: 26,
+          intervalMs: 750,
+          pool: ["swarm", "ranged", "runner", "armored", "elite", "elite", "elite"],
         };
       case 6:
       default:
