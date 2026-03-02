@@ -11,6 +11,8 @@ const TOWER_COLORS: Record<TowerTypeId, number> = {
 };
 
 const HERO_COLOR = 0xeadb9b;
+const HERO_DOWNED_COLOR = 0xd1a65b;
+const HERO_DEAD_COLOR = 0x5a5555;
 const ENEMY_COLOR = 0xd45757;
 const BOSS_COLOR = 0x8f253d;
 
@@ -114,9 +116,21 @@ export class GameScene extends Phaser.Scene {
         this.consumeProjectileTraces(snapshot.projectileTraces);
 
         if (snapshot.runStatus === "running") {
-          this.statusText.setText(
-            `Pals Defence | Tower [1][2][3] ${this.selectedTower.toUpperCase()} | Skill [Q] Arcane Bolt [E] Aether Pulse | Click slot to place tower`,
-          );
+          const localHero = this.getLocalHero(snapshot);
+          if (localHero?.state === "dead") {
+            this.statusText.setText(
+              "Pals Defence | Hero defeated. Aguarde o fim da run ou reset.",
+            );
+          } else if (localHero?.state === "downed") {
+            const seconds = Math.ceil(localHero.downedRemainingMs / 1000);
+            this.statusText.setText(
+              `Pals Defence | DOWNED: ${seconds}s para sangrar. Aproximacao de aliado revive.`,
+            );
+          } else {
+            this.statusText.setText(
+              `Pals Defence | Tower [1][2][3] ${this.selectedTower.toUpperCase()} | Skill [Q] Arcane Bolt [E] Aether Pulse | Click slot to place tower`,
+            );
+          }
         }
       },
       onUpgradeOptions: (options) => {
@@ -151,6 +165,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const localHero = this.getLocalHero();
+    const isLocalHeroAlive = localHero !== null && localHero.state === "alive" && localHero.hp > 0;
+    const canAct =
+      Boolean(this.snapshot) &&
+      this.snapshot?.runStatus === "running" &&
+      isLocalHeroAlive;
+
     if (Phaser.Input.Keyboard.JustDown(this.keys.one)) {
       this.selectedTower = "defender";
     } else if (Phaser.Input.Keyboard.JustDown(this.keys.two)) {
@@ -159,15 +180,15 @@ export class GameScene extends Phaser.Scene {
       this.selectedTower = "mage";
     }
 
-    if (Phaser.Input.Keyboard.JustDown(this.keys.q)) {
+    if (canAct && Phaser.Input.Keyboard.JustDown(this.keys.q)) {
       this.client.castSkill("arcaneBolt", this.pointerWorldX, this.pointerWorldY);
     }
-    if (Phaser.Input.Keyboard.JustDown(this.keys.e)) {
+    if (canAct && Phaser.Input.Keyboard.JustDown(this.keys.e)) {
       this.client.castSkill("aetherPulse", this.pointerWorldX, this.pointerWorldY);
     }
 
-    const dx = Number(this.keys.d.isDown) - Number(this.keys.a.isDown);
-    const dy = Number(this.keys.s.isDown) - Number(this.keys.w.isDown);
+    const dx = canAct ? Number(this.keys.d.isDown) - Number(this.keys.a.isDown) : 0;
+    const dy = canAct ? Number(this.keys.s.isDown) - Number(this.keys.w.isDown) : 0;
 
     this.inputSendAccumulatorMs += deltaMs;
     if (this.inputSendAccumulatorMs >= 50) {
@@ -178,6 +199,10 @@ export class GameScene extends Phaser.Scene {
 
   private tryPlaceTower(x: number, y: number): void {
     if (!this.snapshot || this.snapshot.runStatus !== "running") {
+      return;
+    }
+    const localHero = this.getLocalHero();
+    if (!localHero || localHero.state !== "alive" || localHero.hp <= 0) {
       return;
     }
 
@@ -302,10 +327,28 @@ export class GameScene extends Phaser.Scene {
 
     for (const hero of snapshot.heroes) {
       const isLocalHero = hero.id === this.playerId;
-      this.graphics.fillStyle(isLocalHero ? HERO_COLOR : 0xbababa, 1);
+      const heroColor =
+        hero.state === "alive"
+          ? (isLocalHero ? HERO_COLOR : 0xbababa)
+          : hero.state === "downed"
+            ? HERO_DOWNED_COLOR
+            : HERO_DEAD_COLOR;
+      this.graphics.fillStyle(heroColor, 1);
       this.graphics.fillCircle(hero.x, hero.y, 11);
-      this.graphics.lineStyle(2, isLocalHero ? 0xfaf3cc : 0xd7d7d7, 1);
+      this.graphics.lineStyle(2, isLocalHero ? 0xfaf3cc : 0xd7d7d7, hero.state === "alive" ? 1 : 0.6);
       this.graphics.strokeCircle(hero.x, hero.y, 11);
+
+      if (hero.state === "downed") {
+        const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / 2800 : 0;
+        this.graphics.lineStyle(2, 0x90f5a3, 0.9);
+        this.graphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
+      }
+
+      if (hero.state === "dead") {
+        this.graphics.lineStyle(2, 0x2e2727, 1);
+        this.graphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
+        this.graphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
+      }
     }
 
     this.drawProjectiles();
@@ -345,8 +388,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     const hero = this.snapshot.heroes.find((entry) => entry.id === this.playerId);
+    const heroStateLabel =
+      hero?.state === "downed" ? "DOWNED" : hero?.state === "dead" ? "DEAD" : "ALIVE";
     const heroInfo = hero
-      ? `HP ${hero.hp}/${hero.maxHp} | Gold ${hero.gold} | Lv ${hero.level} | XP ${hero.xp}/${hero.nextLevelXp} | Towers ${this.snapshot.towers.filter((tower) => tower.ownerId === hero.id).length}/${hero.maxTowers}`
+      ? `State ${heroStateLabel} | HP ${hero.hp}/${hero.maxHp} | Gold ${hero.gold} | Lv ${hero.level} | XP ${hero.xp}/${hero.nextLevelXp} | Towers ${this.snapshot.towers.filter((tower) => tower.ownerId === hero.id).length}/${hero.maxTowers}`
       : "Hero not joined yet";
 
     const skillsInfo = hero
@@ -363,8 +408,21 @@ export class GameScene extends Phaser.Scene {
       [
         `Wave ${this.snapshot.wave}/${this.snapshot.totalWaves} | Base ${this.snapshot.baseHp}/${this.snapshot.baseMaxHp} | Enemies ${this.snapshot.enemies.length}`,
         heroInfo,
+        hero?.state === "downed"
+          ? `Downed Timer ${Math.ceil(hero.downedRemainingMs / 1000)}s | Revive ${Math.round(
+              (hero.reviveProgressMs / 2800) * 100,
+            )}%`
+          : "",
         skillsInfo,
       ].join("\n"),
     );
+  }
+
+  private getLocalHero(snapshot = this.snapshot) {
+    if (!snapshot || !this.playerId) {
+      return null;
+    }
+
+    return snapshot.heroes.find((entry) => entry.id === this.playerId) ?? null;
   }
 }

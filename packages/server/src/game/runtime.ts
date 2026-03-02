@@ -29,6 +29,7 @@ export interface TowerRuntime extends TowerSnapshot {
 export interface EnemyRuntime extends EnemySnapshot {
   pathId: number;
   waypointIndex: number;
+  heroAttackCooldownLeftMs: number;
 }
 
 export type ProjectileTraceSeed = Omit<ProjectileTrace, "id" | "createdAtMs">;

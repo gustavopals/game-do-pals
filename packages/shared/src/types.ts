@@ -9,6 +9,7 @@ export type EnemyTypeId =
   | "boss";
 
 export type HeroSkillId = "arcaneBolt" | "aetherPulse";
+export type HeroState = "alive" | "downed" | "dead";
 
 export interface Vec2 {
   x: number;
@@ -31,6 +32,7 @@ export interface HeroSnapshot {
   name: string;
   x: number;
   y: number;
+  state: HeroState;
   hp: number;
   maxHp: number;
   moveSpeed: number;
@@ -43,6 +45,8 @@ export interface HeroSnapshot {
   gold: number;
   maxTowers: number;
   skills: HeroSkillSnapshot[];
+  downedRemainingMs: number;
+  reviveProgressMs: number;
 }
 
 export interface TowerSnapshot {
@@ -103,7 +107,9 @@ export interface ProjectileTrace {
     | "tower_archer"
     | "tower_mage"
     | "skill_arcane_bolt"
-    | "skill_pulse_shard";
+    | "skill_pulse_shard"
+    | "enemy_spit"
+    | "enemy_boss_blast";
   from: Vec2;
   to: Vec2;
   durationMs: number;

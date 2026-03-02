@@ -46,10 +46,11 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 - `Q`: Arcane Bolt (skill ativa)
 - `E`: Aether Pulse (skill ativa)
 - Escolha de upgrade: clique no card
+- Revive coop: aproxime de um aliado `DOWNED` para reviver automaticamente
 
 ## Proximos incrementos naturais
 
-- dano de inimigo em heroi e habilidades ativas adicionais
+- refinamento do downed/revive (acao manual, VFX dedicados, balanceamento de tempo)
 - sistema de status (poison, chain lightning, crit) real
 - ECS completo em runtime (hoje esta como base de arquitetura)
 - salas/matches multiplas e sincronizacao 2-4 jogadores
