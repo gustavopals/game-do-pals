@@ -1,5 +1,6 @@
 import type {
   ClientMessage,
+  DifficultyPreset,
   GameSnapshot,
   HeroSkillId,
   PlayerProgression,
@@ -19,8 +20,13 @@ interface ClientHandlers {
 
 const STORAGE_PLAYER_ID_KEY = "pals_defence_player_id";
 
+interface ConnectOptions {
+  difficulty: DifficultyPreset;
+}
+
 export class GameClient {
   private socket: WebSocket | null = null;
+  private isManualClose = false;
 
   private handlers: ClientHandlers = {
     onConnected: () => {
@@ -43,8 +49,13 @@ export class GameClient {
   private readonly playerId = this.getOrCreatePlayerId();
   private readonly displayName = `Warden-${this.playerId.slice(-4)}`;
 
-  connect(): void {
-    const wsUrl = import.meta.env.VITE_WS_URL ?? "ws://localhost:3000";
+  connect(options: ConnectOptions): void {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    this.isManualClose = false;
+    const wsUrl = this.buildWsUrl(options.difficulty);
     this.socket = new WebSocket(wsUrl);
 
     this.socket.addEventListener("open", () => {
@@ -60,12 +71,31 @@ export class GameClient {
     });
 
     this.socket.addEventListener("close", () => {
+      this.socket = null;
+      if (this.isManualClose) {
+        this.isManualClose = false;
+        return;
+      }
       this.handlers.onError("Connection to server closed.");
     });
 
     this.socket.addEventListener("error", () => {
       this.handlers.onError("Failed to connect to server.");
     });
+  }
+
+  disconnect(): void {
+    if (!this.socket) {
+      return;
+    }
+
+    if (this.socket.readyState === WebSocket.CLOSING || this.socket.readyState === WebSocket.CLOSED) {
+      this.socket = null;
+      return;
+    }
+
+    this.isManualClose = true;
+    this.socket.close(1000, "client_disconnect");
   }
 
   setHandlers(handlers: Partial<ClientHandlers>): void {
@@ -141,6 +171,14 @@ export class GameClient {
     }
 
     this.socket.send(JSON.stringify(message));
+  }
+
+  private buildWsUrl(difficulty: DifficultyPreset): string {
+    const rawBaseUrl = import.meta.env.VITE_WS_URL ?? "ws://localhost:3000";
+    const fallbackOrigin = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+    const wsUrl = new URL(rawBaseUrl, fallbackOrigin);
+    wsUrl.searchParams.set("difficulty", difficulty);
+    return wsUrl.toString();
   }
 
   private getOrCreatePlayerId(): string {

@@ -1,4 +1,11 @@
-import type { GameSnapshot, ProjectileTrace, TowerTypeId } from "@pals-defence/shared";
+import type {
+  DifficultyPreset,
+  GameSnapshot,
+  PlayerProgression,
+  ProjectileTrace,
+  RunSummary,
+  TowerTypeId,
+} from "@pals-defence/shared";
 import Phaser from "phaser";
 
 import { GameClient } from "../network/GameClient";
@@ -15,6 +22,8 @@ const HERO_DOWNED_COLOR = 0xd1a65b;
 const HERO_DEAD_COLOR = 0x5a5555;
 const ENEMY_COLOR = 0xd45757;
 const BOSS_COLOR = 0x8f253d;
+
+type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd";
 
 interface ActiveProjectile {
   id: number;
@@ -34,9 +43,15 @@ export class GameScene extends Phaser.Scene {
   private graphics!: Phaser.GameObjects.Graphics;
   private hudText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  private screenLayer!: Phaser.GameObjects.Container;
 
   private playerId: string | null = null;
   private selectedTower: TowerTypeId = "defender";
+  private selectedDifficulty: DifficultyPreset = "normal";
+  private screenMode: ScreenMode = "menu";
+  private runEndSummary: RunSummary | null = null;
+  private runEndProgression: PlayerProgression | null = null;
+  private connectionMessage = "";
 
   private inputSendAccumulatorMs = 0;
   private pointerWorldX = 640;
@@ -68,7 +83,7 @@ export class GameScene extends Phaser.Scene {
     this.graphics = this.add.graphics();
 
     this.hudText = this.add
-      .text(12, 10, "Connecting...", {
+      .text(12, 10, "", {
         color: "#f1eddc",
         fontSize: "16px",
         fontFamily: "Trebuchet MS",
@@ -77,12 +92,14 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     this.statusText = this.add
-      .text(12, 670, "", {
+      .text(12, 670, "Pals Defence", {
         color: "#e2d2a2",
         fontSize: "14px",
         fontFamily: "Trebuchet MS",
       })
       .setDepth(100);
+
+    this.screenLayer = this.add.container(0, 0).setDepth(300);
 
     this.keys = this.input.keyboard?.addKeys({
       w: Phaser.Input.Keyboard.KeyCodes.W,
@@ -110,12 +127,15 @@ export class GameScene extends Phaser.Scene {
     this.client.setHandlers({
       onConnected: (playerId) => {
         this.playerId = playerId;
+        this.screenMode = "playing";
+        this.connectionMessage = "";
+        this.renderScreen();
       },
       onState: (snapshot) => {
         this.snapshot = snapshot;
         this.consumeProjectileTraces(snapshot.projectileTraces);
 
-        if (snapshot.runStatus === "running") {
+        if (this.screenMode === "playing" && snapshot.runStatus === "running") {
           const localHero = this.getLocalHero(snapshot);
           if (localHero?.state === "dead") {
             this.statusText.setText(
@@ -141,16 +161,26 @@ export class GameScene extends Phaser.Scene {
       onRunEnded: (summary, progression) => {
         this.upgradeOverlay.hide();
         this.projectiles = [];
-        this.statusText.setText(
-          `Run ${summary.runStatus.toUpperCase()} | Wave ${summary.reachedWave} | Gold ${summary.goldEarned} | Essence ${progression.totalEssence}`,
-        );
+        this.runEndSummary = summary;
+        this.runEndProgression = progression;
+        this.screenMode = "runEnd";
+        this.renderScreen();
       },
       onError: (message) => {
+        this.upgradeOverlay.hide();
         this.statusText.setText(message);
+        const normalized = message.toLowerCase();
+        const isConnectionError =
+          normalized.includes("connection") || normalized.includes("failed to connect");
+        if (isConnectionError) {
+          this.connectionMessage = message;
+          this.screenMode = "menu";
+          this.renderScreen();
+        }
       },
     });
 
-    this.client.connect();
+    this.renderScreen();
   }
 
   update(_: number, delta: number): void {
@@ -168,6 +198,7 @@ export class GameScene extends Phaser.Scene {
     const localHero = this.getLocalHero();
     const isLocalHeroAlive = localHero !== null && localHero.state === "alive" && localHero.hp > 0;
     const canAct =
+      this.screenMode === "playing" &&
       Boolean(this.snapshot) &&
       this.snapshot?.runStatus === "running" &&
       isLocalHeroAlive;
@@ -198,7 +229,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryPlaceTower(x: number, y: number): void {
-    if (!this.snapshot || this.snapshot.runStatus !== "running") {
+    if (this.screenMode !== "playing" || !this.snapshot || this.snapshot.runStatus !== "running") {
       return;
     }
     const localHero = this.getLocalHero();
@@ -267,13 +298,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawWorld(): void {
+    this.graphics.clear();
+    this.graphics.fillStyle(0x1d1a13, 1);
+    this.graphics.fillRect(0, 0, 1280, 720);
+
     if (!this.snapshot) {
       return;
     }
 
     const snapshot = this.snapshot;
-
-    this.graphics.clear();
 
     this.graphics.fillStyle(0x252118, 1);
     this.graphics.fillRect(0, 0, snapshot.map.width, snapshot.map.height);
@@ -432,8 +465,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
+    if (this.screenMode !== "playing") {
+      this.hudText.setText("");
+      return;
+    }
+
     if (!this.snapshot) {
-      this.hudText.setText("Waiting for snapshot...");
+      this.hudText.setText("Connecting...");
       return;
     }
 
@@ -468,6 +506,193 @@ export class GameScene extends Phaser.Scene {
         skillsInfo,
       ].join("\n"),
     );
+  }
+
+  private renderScreen(): void {
+    if (!this.screenLayer) {
+      return;
+    }
+
+    this.screenLayer.removeAll(true);
+    switch (this.screenMode) {
+      case "menu":
+        this.renderMenuScreen();
+        break;
+      case "difficulty":
+        this.renderDifficultyScreen();
+        break;
+      case "connecting":
+        this.renderConnectingScreen();
+        break;
+      case "runEnd":
+        this.renderRunEndScreen();
+        break;
+      case "playing":
+      default:
+        break;
+    }
+  }
+
+  private renderMenuScreen(): void {
+    this.statusText.setText(this.connectionMessage || "Escolha como deseja iniciar.");
+    this.addModalBackground(0.62);
+    this.addScreenTitle("Pals Defence");
+    this.addScreenSubtitle("Roguelite Tower Defense");
+
+    this.addScreenButton(640, 350, 320, 52, "Start Run", () => {
+      this.screenMode = "difficulty";
+      this.renderScreen();
+    });
+  }
+
+  private renderDifficultyScreen(): void {
+    this.statusText.setText("Selecione a dificuldade da sala.");
+    this.addModalBackground(0.62);
+    this.addScreenTitle("Select Difficulty");
+
+    this.addScreenButton(640, 290, 360, 52, "Easy", () => {
+      this.startRunWithDifficulty("easy");
+    });
+    this.addScreenButton(640, 360, 360, 52, "Normal", () => {
+      this.startRunWithDifficulty("normal");
+    });
+    this.addScreenButton(640, 430, 360, 52, "Hard", () => {
+      this.startRunWithDifficulty("hard");
+    });
+    this.addScreenButton(640, 520, 240, 44, "Back", () => {
+      this.screenMode = "menu";
+      this.renderScreen();
+    });
+  }
+
+  private renderConnectingScreen(): void {
+    this.statusText.setText("Conectando ao servidor...");
+    this.addModalBackground(0.58);
+    this.addScreenTitle("Connecting");
+    this.addScreenSubtitle(`Difficulty: ${this.selectedDifficulty.toUpperCase()}`);
+  }
+
+  private renderRunEndScreen(): void {
+    this.addModalBackground(0.68);
+    this.addScreenTitle("Run Ended");
+
+    const runStatus = this.runEndSummary?.runStatus.toUpperCase() ?? "UNKNOWN";
+    const wave = this.runEndSummary?.reachedWave ?? 0;
+    const gold = this.runEndSummary?.goldEarned ?? 0;
+    const essence = this.runEndProgression?.totalEssence ?? 0;
+
+    const summaryText = this.add
+      .text(
+        640,
+        325,
+        `Status: ${runStatus}\nWave: ${wave}\nGold: ${gold}\nEssence: ${essence}`,
+        {
+          color: "#f0e8cf",
+          fontSize: "24px",
+          fontFamily: "Trebuchet MS",
+          align: "center",
+          lineSpacing: 8,
+        },
+      )
+      .setOrigin(0.5)
+      .setDepth(301);
+    this.screenLayer.add(summaryText);
+
+    this.addScreenButton(640, 470, 320, 50, "Play Again", () => {
+      this.client.disconnect();
+      this.screenMode = "difficulty";
+      this.renderScreen();
+    });
+    this.addScreenButton(640, 535, 240, 44, "Main Menu", () => {
+      this.client.disconnect();
+      this.screenMode = "menu";
+      this.renderScreen();
+    });
+  }
+
+  private startRunWithDifficulty(difficulty: DifficultyPreset): void {
+    this.selectedDifficulty = difficulty;
+    this.connectionMessage = "";
+    this.runEndSummary = null;
+    this.runEndProgression = null;
+    this.playerId = null;
+    this.snapshot = null;
+    this.latestProjectileTraceId = 0;
+    this.projectiles = [];
+    this.upgradeOverlay.hide();
+    this.client.disconnect();
+    this.screenMode = "connecting";
+    this.renderScreen();
+    this.client.connect({ difficulty });
+  }
+
+  private addModalBackground(alpha: number): void {
+    const backdrop = this.add
+      .rectangle(640, 360, 1280, 720, 0x0e0d0b, alpha)
+      .setDepth(300);
+    this.screenLayer.add(backdrop);
+  }
+
+  private addScreenTitle(text: string): void {
+    const title = this.add
+      .text(640, 165, text, {
+        color: "#f6ebc7",
+        fontSize: "52px",
+        fontFamily: "Trebuchet MS",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(301);
+    this.screenLayer.add(title);
+  }
+
+  private addScreenSubtitle(text: string): void {
+    const subtitle = this.add
+      .text(640, 225, text, {
+        color: "#e6d5a7",
+        fontSize: "24px",
+        fontFamily: "Trebuchet MS",
+      })
+      .setOrigin(0.5)
+      .setDepth(301);
+    this.screenLayer.add(subtitle);
+  }
+
+  private addScreenButton(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    label: string,
+    onClick: () => void,
+  ): void {
+    const rect = this.add
+      .rectangle(x, y, width, height, 0x2e2a21, 0.95)
+      .setStrokeStyle(2, 0xcdba88, 0.95)
+      .setDepth(301);
+    const text = this.add
+      .text(x, y, label, {
+        color: "#f5edda",
+        fontSize: "24px",
+        fontFamily: "Trebuchet MS",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(302);
+
+    rect.setInteractive({ useHandCursor: true });
+    rect.on("pointerover", () => {
+      rect.setFillStyle(0x3e392c, 0.98);
+    });
+    rect.on("pointerout", () => {
+      rect.setFillStyle(0x2e2a21, 0.95);
+    });
+    rect.on("pointerdown", () => {
+      onClick();
+    });
+
+    this.screenLayer.add(rect);
+    this.screenLayer.add(text);
   }
 
   private getLocalHero(snapshot = this.snapshot) {

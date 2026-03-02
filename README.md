@@ -55,6 +55,13 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 - Escolha de upgrade: clique no card
 - Revive coop: aproxime de um aliado `DOWNED` para reviver automaticamente
 
+## Fluxo de telas
+
+- Main Menu
+- Selecao de dificuldade (`easy`, `normal`, `hard`)
+- Gameplay
+- Run End (Play Again / Main Menu)
+
 ## Proximos incrementos naturais
 
 - refinamento do downed/revive (acao manual, VFX dedicados, balanceamento de tempo)
