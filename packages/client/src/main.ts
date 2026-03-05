@@ -16,8 +16,8 @@ const overlay = new UpgradeOverlay(overlayElement);
 new Phaser.Game({
   type: Phaser.AUTO,
   parent: "game-root",
-  width: 1280,
-  height: 720,
+  width: 1600,
+  height: 900,
   backgroundColor: "#0d1212",
   pixelArt: true,
   antialias: false,

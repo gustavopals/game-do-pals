@@ -123,8 +123,8 @@ export class GameScene extends Phaser.Scene {
   private selectedMoveTowerId: number | null = null;
 
   private inputSendAccumulatorMs = 0;
-  private pointerWorldX = 640;
-  private pointerWorldY = 360;
+  private pointerWorldX = 800;
+  private pointerWorldY = 450;
 
   private latestProjectileTraceId = 0;
   private projectiles: ActiveProjectile[] = [];
@@ -168,7 +168,7 @@ export class GameScene extends Phaser.Scene {
     this.resolveMapLayerConfig();
     this.ensurePixelTextures();
     this.mapTexture = this.add
-      .renderTexture(0, 0, 1280, 720)
+      .renderTexture(0, 0, 1600, 900)
       .setOrigin(0)
       .setDepth(5);
     this.worldGraphics = this.add.graphics().setDepth(24);
@@ -185,7 +185,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     this.statusText = this.add
-      .text(12, 670, "Pals Defence", {
+      .text(12, 838, "Pals Defence", {
         color: "#e8d8a8",
         fontSize: "14px",
         fontFamily: BODY_FONT,
@@ -193,13 +193,13 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     this.hudBackdrop = this.add
-      .rectangle(8, 8, 760, 112, 0x0d1919, 0.58)
+      .rectangle(8, 8, 950, 112, 0x0d1919, 0.58)
       .setOrigin(0, 0)
       .setStrokeStyle(1, 0xcab97a, 0.45)
       .setDepth(90);
 
     this.statusBackdrop = this.add
-      .rectangle(8, 684, 620, 30, 0x0d1919, 0.58)
+      .rectangle(8, 854, 620, 30, 0x0d1919, 0.58)
       .setOrigin(0, 0)
       .setStrokeStyle(1, 0xcab97a, 0.45)
       .setDepth(90);
@@ -209,7 +209,7 @@ export class GameScene extends Phaser.Scene {
     this.locale = loadLocale();
     this.loadOnboardingProgress();
     this.localeButton = this.add
-      .text(1262, 12, tr(this.locale, "language_button"), {
+      .text(1582, 12, tr(this.locale, "language_button"), {
         color: "#f2e8c6",
         fontSize: "18px",
         fontFamily: TITLE_FONT,
@@ -228,7 +228,7 @@ export class GameScene extends Phaser.Scene {
       this.handleToggleLocale();
     });
     this.sfxButton = this.add
-      .text(1172, 12, "", {
+      .text(1462, 12, "", {
         color: "#d9d8c8",
         fontSize: "15px",
         fontFamily: BODY_FONT,
@@ -722,7 +722,7 @@ export class GameScene extends Phaser.Scene {
     const snapshot = this.snapshot;
     this.ensureMapRender(snapshot.map);
     this.mapTexture?.setVisible(true);
-    this.mapTexture?.setAlpha(0.78);
+    this.mapTexture?.setAlpha(0.68);
 
     this.drawBaseObjective(snapshot);
 
@@ -910,7 +910,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const panel = this.addScreenPanel(640, 360, 860, 520);
+    const panel = this.addScreenPanel(800, 450, 1075, 650);
     this.screenLayer.add(panel);
 
     switch (this.screenMode) {
@@ -949,9 +949,9 @@ export class GameScene extends Phaser.Scene {
     );
     this.addScreenTitle(tr(this.locale, "menu_title"));
     this.addScreenSubtitle(tr(this.locale, "menu_subtitle"));
-    this.addScreenLore(tr(this.locale, "menu_lore"), 280);
+    this.addScreenLore(tr(this.locale, "menu_lore"), 350);
 
-    this.addScreenButton(640, 390, 340, 56, tr(this.locale, "menu_start_run"), () => {
+    this.addScreenButton(800, 488, 340, 56, tr(this.locale, "menu_start_run"), () => {
       this.screenMode = "difficulty";
       this.renderScreen();
     });
@@ -960,18 +960,18 @@ export class GameScene extends Phaser.Scene {
   private renderDifficultyScreen(): void {
     this.statusText.setText(tr(this.locale, "difficulty_title"));
     this.addScreenTitle(tr(this.locale, "difficulty_title"));
-    this.addScreenLore(tr(this.locale, "difficulty_lore"), 254);
+    this.addScreenLore(tr(this.locale, "difficulty_lore"), 318);
 
-    this.addDifficultyButton(640, 320, tr(this.locale, "difficulty_easy"), tr(this.locale, "difficulty_easy_desc"), () => {
+    this.addDifficultyButton(800, 400, tr(this.locale, "difficulty_easy"), tr(this.locale, "difficulty_easy_desc"), () => {
       this.startRunWithDifficulty("easy");
     });
-    this.addDifficultyButton(640, 398, tr(this.locale, "difficulty_normal"), tr(this.locale, "difficulty_normal_desc"), () => {
+    this.addDifficultyButton(800, 498, tr(this.locale, "difficulty_normal"), tr(this.locale, "difficulty_normal_desc"), () => {
       this.startRunWithDifficulty("normal");
     });
-    this.addDifficultyButton(640, 476, tr(this.locale, "difficulty_hard"), tr(this.locale, "difficulty_hard_desc"), () => {
+    this.addDifficultyButton(800, 596, tr(this.locale, "difficulty_hard"), tr(this.locale, "difficulty_hard_desc"), () => {
       this.startRunWithDifficulty("hard");
     });
-    this.addScreenButton(640, 566, 240, 44, tr(this.locale, "back"), () => {
+    this.addScreenButton(800, 708, 240, 44, tr(this.locale, "back"), () => {
       this.screenMode = "menu";
       this.renderScreen();
     });
@@ -985,7 +985,7 @@ export class GameScene extends Phaser.Scene {
         difficulty: this.getDifficultyLabel(this.selectedDifficulty),
       }),
     );
-    this.addScreenLore(tr(this.locale, "connecting_lore"), 322);
+    this.addScreenLore(tr(this.locale, "connecting_lore"), 403);
   }
 
   private renderRunEndScreen(): void {
@@ -998,8 +998,8 @@ export class GameScene extends Phaser.Scene {
 
     const summaryText = this.add
       .text(
-        640,
-        325,
+        800,
+        406,
         [
           tr(this.locale, "run_end_status", { status: runStatus }),
           tr(this.locale, "run_end_wave", { wave }),
@@ -1018,12 +1018,12 @@ export class GameScene extends Phaser.Scene {
       .setDepth(301);
     this.screenLayer.add(summaryText);
 
-    this.addScreenButton(640, 470, 320, 50, tr(this.locale, "play_again"), () => {
+    this.addScreenButton(800, 588, 320, 50, tr(this.locale, "play_again"), () => {
       this.client.disconnect();
       this.screenMode = "difficulty";
       this.renderScreen();
     });
-    this.addScreenButton(640, 535, 240, 44, tr(this.locale, "main_menu"), () => {
+    this.addScreenButton(800, 669, 240, 44, tr(this.locale, "main_menu"), () => {
       this.client.disconnect();
       this.screenMode = "menu";
       this.renderScreen();
@@ -1056,7 +1056,7 @@ export class GameScene extends Phaser.Scene {
     height: number,
   ): Phaser.GameObjects.Container {
     const panel = this.add.container(0, 0).setDepth(300);
-    const backdrop = this.add.rectangle(640, 360, 1280, 720, 0x090c0e, 0.68).setDepth(300);
+    const backdrop = this.add.rectangle(800, 450, 1600, 900, 0x090c0e, 0.68).setDepth(300);
     const body = this.add
       .rectangle(x, y, width, height, 0x1a2526, 0.92)
       .setStrokeStyle(2, 0xbfa369, 0.85)
@@ -1074,7 +1074,7 @@ export class GameScene extends Phaser.Scene {
 
   private addScreenTitle(text: string): void {
     const title = this.add
-      .text(640, 165, text, {
+      .text(800, 206, text, {
         color: "#f4e7c2",
         fontSize: "56px",
         fontFamily: TITLE_FONT,
@@ -1087,7 +1087,7 @@ export class GameScene extends Phaser.Scene {
 
   private addScreenSubtitle(text: string): void {
     const subtitle = this.add
-      .text(640, 225, text, {
+      .text(800, 281, text, {
         color: "#d9c793",
         fontSize: "24px",
         fontFamily: BODY_FONT,
@@ -1099,12 +1099,12 @@ export class GameScene extends Phaser.Scene {
 
   private addScreenLore(text: string, y: number): void {
     const lore = this.add
-      .text(640, y, text, {
+      .text(800, y, text, {
         color: "#b8c3be",
         fontSize: "19px",
         fontFamily: BODY_FONT,
         align: "center",
-        wordWrap: { width: 720 },
+        wordWrap: { width: 900 },
       })
       .setOrigin(0.5)
       .setDepth(301);
@@ -1367,15 +1367,15 @@ export class GameScene extends Phaser.Scene {
   private createWaveActionUi(): void {
     this.waveActionContainer = this.add.container(0, 0).setDepth(190).setVisible(false);
     this.waveActionButton = this.add
-      .rectangle(1110, 652, 308, 62, 0x243739, 0.94)
+      .rectangle(1388, 815, 385, 78, 0x243739, 0.94)
       .setStrokeStyle(2, 0xc4b37f, 0.9)
       .setDepth(191)
       .setInteractive({ useHandCursor: true });
     const sheen = this.add
-      .rectangle(1110, 637, 286, 16, 0xf6e5b8, 0.12)
+      .rectangle(1388, 796, 358, 20, 0xf6e5b8, 0.12)
       .setDepth(192);
     this.waveActionLabel = this.add
-      .text(1110, 648, tr(this.locale, "wave_call_button"), {
+      .text(1388, 810, tr(this.locale, "wave_call_button"), {
         color: "#f3ebd6",
         fontSize: "20px",
         fontFamily: TITLE_FONT,
@@ -1383,7 +1383,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(193);
     this.waveActionInfo = this.add
-      .text(1110, 682, "", {
+      .text(1388, 853, "", {
         color: "#dbcfae",
         fontSize: "14px",
         fontFamily: BODY_FONT,
@@ -1441,27 +1441,27 @@ export class GameScene extends Phaser.Scene {
   private createContextPanelUi(): void {
     this.contextPanelContainer = this.add.container(0, 0).setDepth(197).setVisible(false);
     const panel = this.add
-      .rectangle(1110, 364, 308, 266, 0x111d1f, 0.88)
+      .rectangle(1388, 455, 385, 333, 0x111d1f, 0.88)
       .setStrokeStyle(2, 0xbfa76d, 0.82)
       .setDepth(197);
     const header = this.add
-      .rectangle(1110, 251, 286, 30, 0x2a3b3f, 0.74)
+      .rectangle(1388, 314, 358, 38, 0x2a3b3f, 0.74)
       .setStrokeStyle(1, 0xd1bd8a, 0.45)
       .setDepth(198);
     this.contextPanelTitle = this.add
-      .text(966, 238, "", {
+      .text(1208, 298, "", {
         color: "#f4e8c6",
         fontSize: "18px",
         fontFamily: TITLE_FONT,
       })
       .setDepth(199);
     this.contextPanelBody = this.add
-      .text(962, 272, "", {
+      .text(1203, 340, "", {
         color: "#d8d7c5",
         fontSize: "14px",
         fontFamily: BODY_FONT,
         lineSpacing: 3,
-        wordWrap: { width: 290 },
+        wordWrap: { width: 363 },
       })
       .setDepth(199);
 
@@ -1471,27 +1471,27 @@ export class GameScene extends Phaser.Scene {
   private createOnboardingUi(): void {
     this.onboardingContainer = this.add.container(0, 0).setDepth(196).setVisible(false);
     const panel = this.add
-      .rectangle(352, 620, 668, 92, 0x121e20, 0.86)
+      .rectangle(440, 775, 835, 115, 0x121e20, 0.86)
       .setStrokeStyle(2, 0xb8a06b, 0.78)
       .setDepth(196);
     const header = this.add
-      .rectangle(352, 585, 638, 24, 0x2a3b3f, 0.72)
+      .rectangle(440, 731, 798, 30, 0x2a3b3f, 0.72)
       .setStrokeStyle(1, 0xd1bd8a, 0.42)
       .setDepth(197);
     this.onboardingTitle = this.add
-      .text(44, 575, "", {
+      .text(55, 719, "", {
         color: "#f3e8c8",
         fontSize: "16px",
         fontFamily: TITLE_FONT,
       })
       .setDepth(198);
     this.onboardingBody = this.add
-      .text(42, 598, "", {
+      .text(53, 748, "", {
         color: "#d6d5c1",
         fontSize: "13px",
         fontFamily: BODY_FONT,
         lineSpacing: 2,
-        wordWrap: { width: 628 },
+        wordWrap: { width: 785 },
       })
       .setDepth(198);
 
@@ -2426,8 +2426,8 @@ export class GameScene extends Phaser.Scene {
     const motes: AmbientMote[] = [];
     for (let i = 0; i < count; i += 1) {
       motes.push({
-        x: Phaser.Math.Between(0, 1280),
-        y: Phaser.Math.Between(0, 720),
+        x: Phaser.Math.Between(0, 1600),
+        y: Phaser.Math.Between(0, 900),
         size: Phaser.Math.FloatBetween(0.6, 2.2),
         speed: Phaser.Math.FloatBetween(5, 17),
         alpha: Phaser.Math.FloatBetween(0.05, 0.22),
@@ -2443,13 +2443,13 @@ export class GameScene extends Phaser.Scene {
       mote.y += mote.speed * dt;
       mote.x += Math.sin((this.time.now / 1000) + mote.drift) * 0.07;
 
-      if (mote.y > 724) {
+      if (mote.y > 904) {
         mote.y = -4;
-        mote.x = Phaser.Math.Between(0, 1280);
+        mote.x = Phaser.Math.Between(0, 1600);
       }
       if (mote.x < -6) {
-        mote.x = 1286;
-      } else if (mote.x > 1286) {
+        mote.x = 1606;
+      } else if (mote.x > 1606) {
         mote.x = -6;
       }
     }
