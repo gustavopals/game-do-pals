@@ -6,8 +6,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:server": "npm --workspace @pals-defence/server run dev",
-    "dev:client": "npm --workspace @pals-defence/client run dev",
+    "dev:backend": "npm --workspace @pals-defence/server run dev",
+    "dev:frontend": "npm --workspace @pals-defence/client run dev",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   }
