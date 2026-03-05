@@ -1118,9 +1118,9 @@ export class GameScene extends Phaser.Scene {
     description: string,
     onClick: () => void,
   ): void {
-    this.addScreenButton(x, y, 520, 62, label, onClick);
+    this.addScreenButton(x, y - 12, 520, 80, label, onClick);
     const desc = this.add
-      .text(x, y + 27, description, {
+      .text(x, y + 16, description, {
         color: "#afbfba",
         fontSize: "14px",
         fontFamily: BODY_FONT,
@@ -2035,7 +2035,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       sprite.setTexture(this.getTowerTextureKey(tower.typeId));
-      const bobY = Math.sin((this.time.now + tower.id * 121) / 340) * 0.55;
+      const bobY = Math.sin((this.time.now + tower.id * 121) / 340) * 1.4;
       sprite.setPosition(tower.x, tower.y + bobY);
       sprite.setDepth(30 + tower.y * 0.05);
       sprite.setScale(this.getTowerSpriteScale(tower.typeId));
@@ -2066,11 +2066,12 @@ export class GameScene extends Phaser.Scene {
       }
 
       sprite.setTexture(this.getEnemyTextureKey(enemy));
-      const bobY = Math.sin((this.time.now + enemy.id * 97) / 180) * (enemy.isBoss ? 1.2 : 0.8);
+      const bobY = Math.sin((this.time.now + enemy.id * 97) / 180) * (enemy.isBoss ? 2.5 : 1.8);
       sprite.setPosition(enemy.x, enemy.y + bobY);
       sprite.setDepth(32 + enemy.y * 0.05);
       sprite.clearTint();
-      sprite.setScale(this.getEnemySpriteScale(enemy));
+      const scalePulse = 1 + Math.sin((this.time.now + enemy.id * 53) / 260) * 0.04;
+      sprite.setScale(this.getEnemySpriteScale(enemy) * scalePulse);
       sprite.setAlpha(1);
     }
 
@@ -2098,7 +2099,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       sprite.setTexture(this.getHeroTextureKey(hero));
-      const bobY = hero.state === "alive" ? Math.sin((this.time.now + hero.x) / 210) * 0.8 : 0;
+      const bobY = hero.state === "alive" ? Math.sin((this.time.now + hero.x) / 210) * 2.0 : 0;
       sprite.setPosition(hero.x, hero.y + bobY);
       sprite.setDepth(34 + hero.y * 0.05);
       sprite.setScale(this.getHeroSpriteScale(hero, hero.id === this.playerId));
@@ -2366,12 +2367,12 @@ export class GameScene extends Phaser.Scene {
   private getTowerSpriteScale(towerType: TowerTypeId): number {
     switch (towerType) {
       case "defender":
-        return 1.2;
+        return 1.1;
       case "archer":
-        return 1.16;
+        return 1.05;
       case "mage":
       default:
-        return 1.22;
+        return 1.1;
     }
   }
 
