@@ -11,6 +11,7 @@ export type EnemyTypeId =
 export type HeroSkillId = "arcaneBolt" | "aetherPulse";
 export type HeroState = "alive" | "downed" | "dead";
 export type DifficultyPreset = "easy" | "normal" | "hard";
+export type MidRunObjectiveKind = "slayer" | "survivor" | "bulwark";
 
 export interface Vec2 {
   x: number;
@@ -96,6 +97,7 @@ export interface GameSnapshot {
   intermissionRemainingMs: number;
   remainingWaveSpawns: number;
   reviveRequiredMs: number;
+  midRunObjective: MidRunObjectiveSnapshot | null;
   runStatus: "running" | "won" | "lost";
   baseHp: number;
   baseMaxHp: number;
@@ -103,6 +105,15 @@ export interface GameSnapshot {
   towers: TowerSnapshot[];
   enemies: EnemySnapshot[];
   projectileTraces: ProjectileTrace[];
+}
+
+export interface MidRunObjectiveSnapshot {
+  kind: MidRunObjectiveKind;
+  status: "active" | "completed" | "failed";
+  wave: number;
+  progress: number;
+  target: number;
+  rewardGold: number;
 }
 
 export interface HeroSkillSnapshot {

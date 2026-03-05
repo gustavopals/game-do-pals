@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "totals": {
+    "runs": 1,
+    "wins": 0,
+    "losses": 1,
+    "bestWave": 3,
+    "totalReachedWave": 3,
+    "totalDurationMs": 182050,
+    "totalGoldEarned": 0
+  },
+  "byDifficulty": {
+    "easy": {
+      "runs": 1,
+      "wins": 0,
+      "losses": 1,
+      "bestWave": 3,
+      "totalReachedWave": 3,
+      "totalDurationMs": 182050,
+      "totalGoldEarned": 0
+    },
+    "normal": {
+      "runs": 0,
+      "wins": 0,
+      "losses": 0,
+      "bestWave": 0,
+      "totalReachedWave": 0,
+      "totalDurationMs": 0,
+      "totalGoldEarned": 0
+    },
+    "hard": {
+      "runs": 0,
+      "wins": 0,
+      "losses": 0,
+      "bestWave": 0,
+      "totalReachedWave": 0,
+      "totalDurationMs": 0,
+      "totalGoldEarned": 0
+    }
+  },
+  "byPartySize": {
+    "1": {
+      "runs": 1,
+      "wins": 0,
+      "losses": 1,
+      "bestWave": 3,
+      "totalReachedWave": 3,
+      "totalDurationMs": 182050,
+      "totalGoldEarned": 0
+    }
+  },
+  "recentRuns": [
+    {
+      "recordedAtIso": "2026-03-02T17:44:47.649Z",
+      "difficulty": "easy",
+      "runStatus": "lost",
+      "reachedWave": 3,
+      "durationMs": 182050,
+      "partySize": 1,
+      "totalGoldEarned": 0,
+      "avgGoldPerPlayer": 0,
+      "maxGoldPerPlayer": 0,
+      "minGoldPerPlayer": 0
+    }
+  ]
+}

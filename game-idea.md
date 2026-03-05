@@ -107,6 +107,9 @@ Inspiracao de atmosfera e leitura visual:
 - Upgrade Overlay
 - Run End Screen
 - HUD com estado da run, wave state, status do heroi e skills
+- Context panel tatico com tooltip de status/efeitos em herois, torres e inimigos
+- Toggle de SFX no cliente e feedback sonoro de UI
+- Onboarding tatico in-game para controles avancados (`F`, `R`, `SPACE`) + dica contextual de revive co-op (`V`)
 
 ### 3.9 Art direction in-game
 
@@ -114,12 +117,32 @@ Inspiracao de atmosfera e leitura visual:
 - Terreno em tiles com camadas/config JSON
 - Sprites pixelados de heroi, torres e inimigos
 - Ambient motion (motes, pulsos, overlays de status)
+- Pass visual v2 aplicado: sprites unicos por tipo de inimigo, animacao expandida do heroi e maior diversidade de decor no mapa
 
 ### 3.10 Localization
 
 - Suporte PT/EN com toggle em runtime
 - Textos principais de gameplay/local UI localizados
 - Revisao completa de i18n fica para fase final de polish
+
+### 3.12 Audio foundation
+
+- Primeira camada de SFX sintetizados integrada no cliente
+- Eventos cobertos: UI/click, escolha de upgrade, transicoes de wave, skills, elite/boss, revive, vitoria/derrota, erro
+- Estado ON/OFF persistido localmente e restaurado ao abrir o jogo
+
+### 3.13 Telemetry foundation
+
+- Coleta basica de resultados de run no servidor
+- Persistencia em `packages/server/data/telemetry.json`
+- Agregacoes iniciais: total, por dificuldade, por tamanho de grupo e historico recente
+
+### 3.14 Mid-run dynamic objective
+
+- Evento dinamico acionado no meio da run (wave 3)
+- Objetivo sorteado por partida: `slayer`, `survivor` ou `bulwark`
+- Progresso e status exibidos no HUD (`active`, `completed`, `failed`)
+- Recompensa de ouro para o time ao concluir o evento
 
 ## 4. Final Product Goal (target)
 
@@ -224,10 +247,10 @@ Fases seguintes:
 ## 10. Short-Term Backlog (next steps)
 
 1. Refinar reposicionamento de torres (feedback visual, custo dinamico, UX).
-2. Tooltips/context panel para status e efeitos.
-3. Primeira camada de audio (SFX essenciais).
-4. Telemetria simples de run para orientar ajustes de balance.
-5. Pass de UX para onboarding de controles avancados (move tower, revive manual, reroll, call wave).
+2. Primeira camada de musica adaptativa (intermission, combate, boss) com controle de volume.
+3. Dashboard/relatorio rapido de telemetria para leitura de balance sem abrir JSON manualmente.
+4. Mini tutorial visual de revive/downed para squads (VFX dedicado + teste com 2-4 jogadores).
+5. Balance pass do evento dinamico (targets, recompensa e dificuldade por modo).
 
 ## 11. Final Polish Backlog
 

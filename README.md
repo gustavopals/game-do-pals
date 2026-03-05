@@ -24,7 +24,12 @@ Monorepo inicial para um roguelite tower defense 2D com:
 - suporte de idioma no cliente (`pt`/`en`) com toggle em tempo real e textos de gameplay localizados (skills/upgrades/raridade/status)
 - pass de direcao de arte 2D pixel top-down (terreno em tiles, trilhas com textura e contraste retro)
 - entidades renderizadas com sprites pixelados animados (heroi, torres, inimigos) sincronizados em runtime
+- pass visual v2 em mapa/heroi/inimigos (silhuetas mais distintas por tipo, variação maior de props e terreno)
 - pipeline de arte modular no cliente (`src/game/assets/*`) e mapa em camadas configuravel por JSON (`public/assets/maps/wardens-field.layers.json`)
+- camada inicial de audio com SFX sintetizados (UI, skills, ondas, elite, boss, revive, vitoria/derrota)
+- telemetria basica de run no servidor (`packages/server/data/telemetry.json`) para apoiar balanceamento
+- onboarding in-game para controles avancados (reposicionar torre, reroll, chamada antecipada de onda, dica de revive co-op)
+- evento dinamico de meio de run com objetivo de onda + recompensa em ouro para variar partidas
 - Progressao basica entre runs (`packages/server/data/progression.json`)
 
 ## Rodando localmente
@@ -61,9 +66,11 @@ VITE_WS_URL=ws://localhost:3000 npm --workspace @pals-defence/client run dev
 - `V` (segurar): reviver aliado `DOWNED` dentro do alcance
 - `F`: ativa/desativa modo de reposicionar torre (clique em torre sua e depois no slot alvo, custo `12` de ouro)
 - `SPACE`: durante a preparacao, chama a proxima onda e concede bonus de ouro imediato
+- Botao `SFX` no topo direito: ativa/desativa efeitos sonoros
 - Ao abrir escolha de upgrade/benção, a run pausa ate a decisao
 - Escolha de upgrade: clique no card
 - Revive coop: aproxime de um aliado `DOWNED` e segure `V` para reviver
+- Passe o cursor em entidades durante gameplay para abrir painel contextual de status/efeitos
 
 ## Fluxo de telas
 

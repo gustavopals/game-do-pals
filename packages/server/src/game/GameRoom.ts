@@ -23,6 +23,7 @@ import {
   type HeroSnapshot,
   type HeroSkillId,
   type HeroSkillSnapshot,
+  type MidRunObjectiveKind,
   type ProjectileTrace,
   type RunSummary,
   type ServerMessage,
@@ -33,6 +34,7 @@ import { SeededRng } from "@pals-defence/shared";
 import WebSocket, { type RawData } from "ws";
 
 import type { ProgressionStore } from "../persistence/ProgressionStore.js";
+import type { TelemetryStore } from "../persistence/TelemetryStore.js";
 import type {
   EnemyRuntime,
   HeroRuntime,
@@ -55,6 +57,7 @@ interface GameRoomOptions {
   seed: number;
   difficulty: DifficultyPreset;
   progressionStore: ProgressionStore;
+  telemetryStore: TelemetryStore;
 }
 
 interface HeroSkillDefinition {
@@ -63,6 +66,15 @@ interface HeroSkillDefinition {
   description: string;
   hotkey: "Q" | "E";
   cooldownMs: number;
+}
+
+interface MidRunObjectiveRuntime {
+  kind: MidRunObjectiveKind;
+  status: "active" | "completed" | "failed";
+  wave: number;
+  progress: number;
+  target: number;
+  rewardGold: number;
 }
 
 const HERO_SKILL_DEFINITIONS: Record<HeroSkillId, HeroSkillDefinition> = {
@@ -125,10 +137,22 @@ const PARTY_XP_REWARD_SCALE_BY_SIZE: Record<number, number> = {
   3: 0.86,
   4: 0.8,
 };
+const MID_RUN_OBJECTIVE_TRIGGER_WAVE = 3;
+const MID_RUN_OBJECTIVE_REWARD_GOLD_BY_DIFFICULTY: Record<DifficultyPreset, number> = {
+  easy: 36,
+  normal: 44,
+  hard: 52,
+};
+const MID_RUN_OBJECTIVE_SLAYER_TARGET_BY_DIFFICULTY: Record<DifficultyPreset, number> = {
+  easy: 10,
+  normal: 14,
+  hard: 18,
+};
 
 export class GameRoom {
   private readonly map = DEFAULT_MAP;
   private readonly progressionStore: ProgressionStore;
+  private readonly telemetryStore: TelemetryStore;
 
   private playersById = new Map<string, PlayerSession>();
   private playerIdBySocket = new Map<WebSocket, string>();
@@ -143,6 +167,11 @@ export class GameRoom {
   private tick = 0;
   private elapsedMs = 0;
   private frameProjectileTraces: ProjectileTrace[] = [];
+  private defeatedEnemiesThisWave = 0;
+  private hadHeroDownedThisWave = false;
+  private baseHpAtWaveStart = BASE_MAX_HP;
+  private midRunObjective: MidRunObjectiveRuntime | null = null;
+  private midRunObjectiveIssued = false;
 
   private readonly baseMaxHp = BASE_MAX_HP;
   private baseHp = BASE_MAX_HP;
@@ -167,6 +196,7 @@ export class GameRoom {
     this.seed = options.seed;
     this.rng = new SeededRng(this.seed);
     this.progressionStore = options.progressionStore;
+    this.telemetryStore = options.telemetryStore;
     this.difficulty = options.difficulty;
     this.difficultyBalance = DIFFICULTY_BALANCE[this.difficulty];
     this.combatSystem = new CombatSystem(this.difficultyBalance);
@@ -594,6 +624,9 @@ export class GameRoom {
       teammate.hero.gold += bonusGold;
       teammate.hero.totalGoldEarned += bonusGold;
     }
+
+    this.resetWaveRuntimeTrackers();
+    this.tryStartMidRunObjective();
   }
 
   private update(deltaMs: number): void {
@@ -607,6 +640,8 @@ export class GameRoom {
     if (this.runStatus === "running" && !this.hasUpgradeSelectionPause()) {
       this.updateHeroCooldowns(deltaMs);
       this.updateHeroMovement(deltaMs);
+      const previousWave = this.waveSystem.currentWave;
+      const previousWaveState = this.waveSystem.waveState;
 
       const spawns = this.waveSystem.update(
         deltaMs,
@@ -614,6 +649,7 @@ export class GameRoom {
         this.map.paths.length,
         this.rng,
       );
+      this.handleWaveLifecycle(previousWave, previousWaveState);
       for (const spawn of spawns) {
         this.spawnEnemy(spawn.typeId, spawn.pathId);
       }
@@ -660,9 +696,11 @@ export class GameRoom {
         this.rng,
       );
       this.pushProjectileTraceBatch(combatResult.projectileTraces);
-      this.handleEnemyDefeats(combatResult.defeatedEnemyIds);
+      const defeatedEnemyCount = this.handleEnemyDefeats(combatResult.defeatedEnemyIds);
+      this.defeatedEnemiesThisWave += defeatedEnemyCount;
       this.applyDownedStateTransitions();
       this.updateDownedReviveSystem(deltaMs);
+      this.updateMidRunObjective();
 
       for (const [playerId, session] of this.playersById.entries()) {
         this.checkLevelUpsForHero(playerId, session.hero);
@@ -679,6 +717,171 @@ export class GameRoom {
 
     this.broadcastState();
     this.frameProjectileTraces = [];
+  }
+
+  private handleWaveLifecycle(
+    previousWave: number,
+    previousWaveState: "spawning" | "intermission" | "completed",
+  ): void {
+    const currentWave = this.waveSystem.currentWave;
+    const currentWaveState = this.waveSystem.waveState;
+    const startedWave =
+      (currentWave !== previousWave || previousWaveState !== "spawning") &&
+      currentWaveState === "spawning";
+
+    if (startedWave) {
+      this.resetWaveRuntimeTrackers();
+      this.tryStartMidRunObjective();
+    }
+
+    const enteredIntermission =
+      previousWaveState !== "intermission" && currentWaveState === "intermission";
+    const finishedRunWave =
+      previousWaveState !== "completed" && currentWaveState === "completed";
+    if (enteredIntermission || finishedRunWave) {
+      this.resolveMidRunObjectiveAtWaveEnd();
+    }
+  }
+
+  private resetWaveRuntimeTrackers(): void {
+    this.defeatedEnemiesThisWave = 0;
+    this.hadHeroDownedThisWave = false;
+    this.baseHpAtWaveStart = this.baseHp;
+  }
+
+  private tryStartMidRunObjective(): void {
+    if (this.midRunObjectiveIssued) {
+      return;
+    }
+    if (this.waveSystem.currentWave < MID_RUN_OBJECTIVE_TRIGGER_WAVE) {
+      return;
+    }
+    if (this.waveSystem.waveState !== "spawning") {
+      return;
+    }
+
+    const rewardGold = MID_RUN_OBJECTIVE_REWARD_GOLD_BY_DIFFICULTY[this.difficulty];
+    const kinds: MidRunObjectiveKind[] = ["slayer", "survivor", "bulwark"];
+    const kind = this.rng.pickOne(kinds);
+    const target =
+      kind === "slayer"
+        ? this.getMidRunObjectiveSlayerTarget()
+        : 1;
+
+    this.midRunObjective = {
+      kind,
+      status: "active",
+      wave: this.waveSystem.currentWave,
+      progress: 0,
+      target,
+      rewardGold,
+    };
+    this.midRunObjectiveIssued = true;
+  }
+
+  private getMidRunObjectiveSlayerTarget(): number {
+    const baseTarget = MID_RUN_OBJECTIVE_SLAYER_TARGET_BY_DIFFICULTY[this.difficulty];
+    const partyBonus = Math.max(0, this.getPartySizeForReviveTuning() - 1) * 2;
+    return baseTarget + partyBonus;
+  }
+
+  private updateMidRunObjective(): void {
+    if (!this.midRunObjective || this.midRunObjective.status !== "active") {
+      return;
+    }
+
+    if (this.waveSystem.currentWave !== this.midRunObjective.wave) {
+      this.failMidRunObjective();
+      return;
+    }
+
+    switch (this.midRunObjective.kind) {
+      case "slayer": {
+        this.midRunObjective.progress = Math.min(
+          this.midRunObjective.target,
+          this.defeatedEnemiesThisWave,
+        );
+        if (this.midRunObjective.progress >= this.midRunObjective.target) {
+          this.completeMidRunObjective();
+        }
+        break;
+      }
+      case "survivor": {
+        if (this.hadHeroDownedThisWave) {
+          this.failMidRunObjective();
+        }
+        break;
+      }
+      case "bulwark": {
+        if (this.baseHp < this.baseHpAtWaveStart) {
+          this.failMidRunObjective();
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private resolveMidRunObjectiveAtWaveEnd(): void {
+    if (!this.midRunObjective || this.midRunObjective.status !== "active") {
+      return;
+    }
+    if (this.waveSystem.currentWave !== this.midRunObjective.wave) {
+      return;
+    }
+
+    switch (this.midRunObjective.kind) {
+      case "slayer":
+        if (this.defeatedEnemiesThisWave >= this.midRunObjective.target) {
+          this.completeMidRunObjective();
+        } else {
+          this.failMidRunObjective();
+        }
+        break;
+      case "survivor":
+        if (this.hadHeroDownedThisWave) {
+          this.failMidRunObjective();
+        } else {
+          this.completeMidRunObjective();
+        }
+        break;
+      case "bulwark":
+        if (this.baseHp < this.baseHpAtWaveStart) {
+          this.failMidRunObjective();
+        } else {
+          this.completeMidRunObjective();
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  private completeMidRunObjective(): void {
+    if (!this.midRunObjective || this.midRunObjective.status !== "active") {
+      return;
+    }
+
+    this.midRunObjective.status = "completed";
+    this.midRunObjective.progress = this.midRunObjective.target;
+    for (const session of this.playersById.values()) {
+      if (session.hero.state === "dead") {
+        continue;
+      }
+      session.hero.gold += this.midRunObjective.rewardGold;
+      session.hero.totalGoldEarned += this.midRunObjective.rewardGold;
+    }
+  }
+
+  private failMidRunObjective(): void {
+    if (!this.midRunObjective || this.midRunObjective.status !== "active") {
+      return;
+    }
+    this.midRunObjective.status = "failed";
+    if (this.midRunObjective.kind !== "slayer") {
+      this.midRunObjective.progress = 0;
+    }
   }
 
   private updateHeroMovement(deltaMs: number): void {
@@ -917,6 +1120,7 @@ export class GameRoom {
       if (hero.state === "alive" && hero.hp <= 0) {
         hero.hp = 0;
         hero.state = "downed";
+        this.hadHeroDownedThisWave = true;
         hero.isReviving = false;
         hero.reviveTargetId = null;
         hero.reviveInput = false;
@@ -1026,9 +1230,9 @@ export class GameRoom {
     }
   }
 
-  private handleEnemyDefeats(defeatedEnemyIds: Set<number>): void {
+  private handleEnemyDefeats(defeatedEnemyIds: Set<number>): number {
     if (defeatedEnemyIds.size === 0) {
-      return;
+      return 0;
     }
 
     const defeatedEnemies = this.enemies.filter((enemy) => defeatedEnemyIds.has(enemy.id));
@@ -1065,6 +1269,7 @@ export class GameRoom {
     }
 
     this.enemies = this.enemies.filter((enemy) => !defeatedEnemyIds.has(enemy.id));
+    return defeatedEnemies.length;
   }
 
   private checkLevelUpsForHero(playerId: string, hero: HeroRuntime): void {
@@ -1211,6 +1416,7 @@ export class GameRoom {
     }
 
     this.runStatus = status;
+    const runSummaries: RunSummary[] = [];
 
     for (const [playerId, session] of this.playersById.entries()) {
       const summary: RunSummary = {
@@ -1219,6 +1425,7 @@ export class GameRoom {
         goldEarned: session.hero.totalGoldEarned,
         durationMs: this.elapsedMs,
       };
+      runSummaries.push(summary);
 
       const progression = this.progressionStore.applyRun(playerId, summary);
       this.send(session.socket, {
@@ -1227,6 +1434,12 @@ export class GameRoom {
         progression,
       });
     }
+
+    this.telemetryStore.recordRun({
+      difficulty: this.difficulty,
+      partySize: this.playersById.size,
+      summaries: runSummaries,
+    });
 
     if (!this.resetHandle) {
       this.resetHandle = setTimeout(() => {
@@ -1247,6 +1460,9 @@ export class GameRoom {
     this.baseHp = this.baseMaxHp;
     this.frameProjectileTraces = [];
     this.runStatus = "running";
+    this.midRunObjective = null;
+    this.midRunObjectiveIssued = false;
+    this.resetWaveRuntimeTrackers();
 
     for (const [playerId, session] of this.playersById.entries()) {
       session.hero = this.createHero(playerId, session.displayName);
@@ -1318,6 +1534,7 @@ export class GameRoom {
       intermissionRemainingMs: this.waveSystem.intermissionRemainingMs,
       remainingWaveSpawns: this.waveSystem.remainingWaveSpawns,
       reviveRequiredMs: this.getReviveRequiredMs(),
+      midRunObjective: this.toMidRunObjectiveSnapshot(),
       runStatus: this.runStatus,
       baseHp: this.baseHp,
       baseMaxHp: this.baseMaxHp,
@@ -1325,6 +1542,20 @@ export class GameRoom {
       towers: this.towers.map((tower) => this.toTowerSnapshot(tower)),
       enemies: this.enemies.map((enemy) => this.toEnemySnapshot(enemy)),
       projectileTraces: this.frameProjectileTraces,
+    };
+  }
+
+  private toMidRunObjectiveSnapshot(): GameSnapshot["midRunObjective"] {
+    if (!this.midRunObjective) {
+      return null;
+    }
+    return {
+      kind: this.midRunObjective.kind,
+      status: this.midRunObjective.status,
+      wave: this.midRunObjective.wave,
+      progress: this.midRunObjective.progress,
+      target: this.midRunObjective.target,
+      rewardGold: this.midRunObjective.rewardGold,
     };
   }
 

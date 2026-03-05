@@ -5,14 +5,17 @@ import { WebSocketServer } from "ws";
 
 import { GameRoom } from "./game/GameRoom.js";
 import { ProgressionStore } from "./persistence/ProgressionStore.js";
+import { TelemetryStore } from "./persistence/TelemetryStore.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "3000", 10);
 const defaultDifficulty = parseDifficultyPreset(process.env.DIFFICULTY);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const progressionFile = path.resolve(__dirname, "../data/progression.json");
+const telemetryFile = path.resolve(__dirname, "../data/telemetry.json");
 
 const progressionStore = new ProgressionStore(progressionFile);
+const telemetryStore = new TelemetryStore(telemetryFile);
 const baseSeed = Number.parseInt(process.env.SEED ?? `${Date.now()}`, 10);
 const difficultySeedOffset: Record<DifficultyPreset, number> = {
   easy: 0,
@@ -37,6 +40,7 @@ wss.on("connection", (socket, request) => {
       seed: baseSeed + difficultySeedOffset[difficulty],
       difficulty,
       progressionStore,
+      telemetryStore,
     });
     roomsByDifficulty.set(difficulty, room);
     console.log(`[server] created room for difficulty=${difficulty}`);

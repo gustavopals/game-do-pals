@@ -4,6 +4,7 @@ import type {
   GameSnapshot,
   HeroSnapshot,
   MapConfig,
+  MidRunObjectiveSnapshot,
   PlayerProgression,
   ProjectileTrace,
   RunSummary,
@@ -23,11 +24,11 @@ import {
   trSkillName,
   type Locale,
 } from "../i18n";
+import { SfxEngine } from "../audio/SfxEngine";
 import { GameClient } from "../network/GameClient";
 import { UpgradeOverlay } from "../ui/UpgradeOverlay";
 import {
   ENEMY_TEXTURE_KEYS,
-  ENEMY_TINTS,
   HERO_TEXTURE_KEYS,
   PIXEL_PALETTE,
   PIXEL_TEXTURES,
@@ -40,6 +41,8 @@ const BODY_FONT = '"Spectral", "Segoe UI", serif';
 const TERRAIN_TILE_SIZE = 16;
 const EARLY_WAVE_BONUS_INTERVAL_MS = 500;
 const TOWER_PICK_RADIUS = 26;
+const CONTEXT_TARGET_PICK_RADIUS = 28;
+const ONBOARDING_STORAGE_KEY = "pals_defence_onboarding_advanced_v1";
 
 type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd";
 
@@ -65,9 +68,23 @@ interface AmbientMote {
   drift: number;
 }
 
+type ContextTarget =
+  | { kind: "enemy"; value: EnemySnapshot }
+  | { kind: "tower"; value: TowerSnapshot }
+  | { kind: "hero"; value: HeroSnapshot };
+
+type OnboardingStep = "moveTower" | "reroll" | "callWave";
+
+interface OnboardingProgress {
+  moveTower: boolean;
+  reroll: boolean;
+  callWave: boolean;
+}
+
 export class GameScene extends Phaser.Scene {
   private snapshot: GameSnapshot | null = null;
-  private graphics!: Phaser.GameObjects.Graphics;
+  private worldGraphics!: Phaser.GameObjects.Graphics;
+  private overlayGraphics!: Phaser.GameObjects.Graphics;
   private mapTexture: Phaser.GameObjects.RenderTexture | null = null;
   private hudText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
@@ -75,10 +92,24 @@ export class GameScene extends Phaser.Scene {
   private hudBackdrop!: Phaser.GameObjects.Rectangle;
   private statusBackdrop!: Phaser.GameObjects.Rectangle;
   private localeButton!: Phaser.GameObjects.Text;
+  private sfxButton!: Phaser.GameObjects.Text;
   private waveActionContainer!: Phaser.GameObjects.Container;
   private waveActionButton!: Phaser.GameObjects.Rectangle;
   private waveActionLabel!: Phaser.GameObjects.Text;
   private waveActionInfo!: Phaser.GameObjects.Text;
+  private contextPanelContainer!: Phaser.GameObjects.Container;
+  private contextPanelTitle!: Phaser.GameObjects.Text;
+  private contextPanelBody!: Phaser.GameObjects.Text;
+  private onboardingContainer!: Phaser.GameObjects.Container;
+  private onboardingTitle!: Phaser.GameObjects.Text;
+  private onboardingBody!: Phaser.GameObjects.Text;
+  private readonly sfx = new SfxEngine();
+  private onboardingProgress: OnboardingProgress = {
+    moveTower: false,
+    reroll: false,
+    callWave: false,
+  };
+  private onboardingCompletionBannerUntilMs = 0;
 
   private playerId: string | null = null;
   private selectedTower: TowerTypeId = "defender";
@@ -140,7 +171,8 @@ export class GameScene extends Phaser.Scene {
       .renderTexture(0, 0, 1280, 720)
       .setOrigin(0)
       .setDepth(5);
-    this.graphics = this.add.graphics().setDepth(80);
+    this.worldGraphics = this.add.graphics().setDepth(24);
+    this.overlayGraphics = this.add.graphics().setDepth(82);
 
     this.hudText = this.add
       .text(12, 10, "", {
@@ -175,6 +207,7 @@ export class GameScene extends Phaser.Scene {
     this.screenLayer = this.add.container(0, 0).setDepth(300);
     this.ambientMotes = this.createAmbientMotes(52);
     this.locale = loadLocale();
+    this.loadOnboardingProgress();
     this.localeButton = this.add
       .text(1262, 12, tr(this.locale, "language_button"), {
         color: "#f2e8c6",
@@ -191,10 +224,32 @@ export class GameScene extends Phaser.Scene {
       this.localeButton.setColor("#f2e8c6");
     });
     this.localeButton.on("pointerdown", () => {
+      this.sfx.playUiClick();
       this.handleToggleLocale();
     });
+    this.sfxButton = this.add
+      .text(1172, 12, "", {
+        color: "#d9d8c8",
+        fontSize: "15px",
+        fontFamily: BODY_FONT,
+      })
+      .setOrigin(1, 0)
+      .setDepth(180)
+      .setInteractive({ useHandCursor: true });
+    this.sfxButton.on("pointerover", () => {
+      this.sfxButton.setColor("#fff6de");
+    });
+    this.sfxButton.on("pointerout", () => {
+      this.sfxButton.setColor("#d9d8c8");
+    });
+    this.sfxButton.on("pointerdown", () => {
+      this.handleToggleSfx();
+    });
+    this.updateSfxButtonLabel();
 
     this.createWaveActionUi();
+    this.createContextPanelUi();
+    this.createOnboardingUi();
 
     this.keys = this.input.keyboard?.addKeys({
       w: Phaser.Input.Keyboard.KeyCodes.W,
@@ -222,6 +277,12 @@ export class GameScene extends Phaser.Scene {
       this.pointerWorldY = pointer.worldY;
       this.handleWorldPointerDown(pointer.worldX, pointer.worldY);
     });
+    this.input.once("pointerdown", () => {
+      this.sfx.prime();
+    });
+    this.input.keyboard?.once("keydown", () => {
+      this.sfx.prime();
+    });
 
     this.client.setHandlers({
       onConnected: (playerId) => {
@@ -231,9 +292,11 @@ export class GameScene extends Phaser.Scene {
         this.renderScreen();
       },
       onState: (snapshot) => {
+        const previousSnapshot = this.snapshot;
         this.snapshot = snapshot;
         this.sanitizeTowerMoveSelection(snapshot);
-        this.consumeProjectileTraces(snapshot.projectileTraces);
+        this.consumeProjectileTraces(snapshot.projectileTraces, previousSnapshot !== null);
+        this.handleSnapshotAudio(previousSnapshot, snapshot);
 
         if (this.screenMode === "playing" && snapshot.runStatus === "running") {
           const localHero = this.getLocalHero(snapshot);
@@ -252,13 +315,22 @@ export class GameScene extends Phaser.Scene {
         }
       },
       onUpgradeOptions: (options, rerollTokens) => {
+        this.sfx.playUpgradePrompt();
         this.upgradeOverlay.show(options, (upgradeId) => {
+          this.sfx.playUiClick();
           this.client.chooseUpgrade(upgradeId);
         }, this.locale, rerollTokens, () => {
+          this.sfx.playUiClick();
+          this.markOnboardingStep("reroll");
           this.client.rerollUpgrades();
         });
       },
       onRunEnded: (summary, progression) => {
+        if (summary.runStatus === "won") {
+          this.sfx.playVictory();
+        } else {
+          this.sfx.playDefeat();
+        }
         this.upgradeOverlay.hide();
         this.projectiles = [];
         this.resetTowerMoveState();
@@ -269,6 +341,7 @@ export class GameScene extends Phaser.Scene {
       },
       onError: (message) => {
         const localizedMessage = trErrorMessage(this.locale, message);
+        this.sfx.playError();
         this.upgradeOverlay.hide();
         this.statusText.setText(localizedMessage);
         const isConnectionError = isConnectionErrorMessage(message);
@@ -411,6 +484,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.client.moveTower(this.selectedMoveTowerId, slotIndex);
+    this.markOnboardingStep("moveTower");
     this.selectedMoveTowerId = null;
     return true;
   }
@@ -468,6 +542,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.sfx.playUiClick();
+    this.markOnboardingStep("reroll");
     this.client.rerollUpgrades();
   }
 
@@ -490,16 +566,20 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.markOnboardingStep("callWave");
     this.client.startNextWave();
   }
 
-  private consumeProjectileTraces(traces: ProjectileTrace[]): void {
+  private consumeProjectileTraces(traces: ProjectileTrace[], shouldPlayAudio = true): void {
     for (const trace of traces) {
       if (trace.id <= this.latestProjectileTraceId) {
         continue;
       }
 
       this.latestProjectileTraceId = trace.id;
+      if (shouldPlayAudio) {
+        this.playProjectileSfx(trace.kind);
+      }
       this.projectiles.push({
         id: trace.id,
         kind: trace.kind,
@@ -515,6 +595,110 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private playProjectileSfx(kind: ProjectileTrace["kind"]): void {
+    switch (kind) {
+      case "skill_arcane_bolt":
+        this.sfx.playSkillArcane();
+        break;
+      case "skill_pulse_shard":
+        this.sfx.playSkillPulse();
+        break;
+      case "enemy_elite_burst":
+        this.sfx.playEliteBurst();
+        break;
+      case "enemy_boss_shockwave":
+        this.sfx.playBossShockwave();
+        break;
+      default:
+        break;
+    }
+  }
+
+  private handleSnapshotAudio(previousSnapshot: GameSnapshot | null, snapshot: GameSnapshot): void {
+    if (!previousSnapshot) {
+      return;
+    }
+
+    if (previousSnapshot.waveState !== snapshot.waveState) {
+      if (snapshot.waveState === "spawning") {
+        this.sfx.playWaveStart();
+      } else if (snapshot.waveState === "intermission") {
+        this.sfx.playIntermission();
+      }
+    }
+
+    const defeatedCount = previousSnapshot.enemies.length - snapshot.enemies.length;
+    if (defeatedCount > 0) {
+      this.sfx.playEnemyDefeat(defeatedCount);
+    }
+
+    this.handleTowerAudio(previousSnapshot, snapshot);
+    this.handleReviveAudio(previousSnapshot, snapshot);
+  }
+
+  private handleTowerAudio(previousSnapshot: GameSnapshot, snapshot: GameSnapshot): void {
+    if (!this.playerId) {
+      return;
+    }
+
+    const previousOwned = previousSnapshot.towers.filter((tower) => tower.ownerId === this.playerId);
+    const currentOwned = snapshot.towers.filter((tower) => tower.ownerId === this.playerId);
+
+    if (currentOwned.length > previousOwned.length) {
+      this.sfx.playTowerPlace();
+      return;
+    }
+
+    const previousById = new Map<number, TowerSnapshot>(
+      previousOwned.map((tower) => [tower.id, tower]),
+    );
+    for (const tower of currentOwned) {
+      const previousTower = previousById.get(tower.id);
+      if (!previousTower) {
+        continue;
+      }
+
+      if (Math.hypot(previousTower.x - tower.x, previousTower.y - tower.y) > 2) {
+        this.sfx.playTowerMove();
+        break;
+      }
+    }
+  }
+
+  private handleReviveAudio(previousSnapshot: GameSnapshot, snapshot: GameSnapshot): void {
+    const previousById = new Map<string, HeroSnapshot>(
+      previousSnapshot.heroes.map((hero) => [hero.id, hero]),
+    );
+
+    for (const hero of snapshot.heroes) {
+      const previousHero = previousById.get(hero.id);
+      if (!previousHero) {
+        continue;
+      }
+      if (previousHero.state === "downed" && hero.state === "alive") {
+        this.sfx.playReviveComplete();
+        break;
+      }
+    }
+
+    if (!this.playerId) {
+      return;
+    }
+
+    const previousLocalHero = previousById.get(this.playerId);
+    const currentLocalHero = snapshot.heroes.find((hero) => hero.id === this.playerId);
+    if (
+      previousLocalHero &&
+      currentLocalHero &&
+      previousLocalHero.isReviving !== currentLocalHero.isReviving &&
+      currentLocalHero.isReviving &&
+      currentLocalHero.reviveTargetId !== null &&
+      currentLocalHero.state === "alive"
+    ) {
+      this.sfx.playReviveStart();
+    }
+  }
+
   private updateProjectiles(deltaMs: number): void {
     for (const projectile of this.projectiles) {
       projectile.elapsedMs += deltaMs;
@@ -526,7 +710,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawWorld(): void {
-    this.graphics.clear();
+    this.worldGraphics.clear();
+    this.overlayGraphics.clear();
     this.drawAmbientMotes();
 
     if (!this.snapshot) {
@@ -537,14 +722,9 @@ export class GameScene extends Phaser.Scene {
     const snapshot = this.snapshot;
     this.ensureMapRender(snapshot.map);
     this.mapTexture?.setVisible(true);
+    this.mapTexture?.setAlpha(0.78);
 
-    const basePulse = 0.5 + Math.sin(this.time.now / 260) * 0.5;
-    this.graphics.fillStyle(0x2c7f6a, 0.95);
-    this.graphics.fillCircle(snapshot.map.basePosition.x, snapshot.map.basePosition.y, 26);
-    this.graphics.lineStyle(4, 0xbcf0de, 0.7);
-    this.graphics.strokeCircle(snapshot.map.basePosition.x, snapshot.map.basePosition.y, 34 + basePulse * 3.5);
-    this.graphics.lineStyle(2, 0x71dac3, 0.85);
-    this.graphics.strokeCircle(snapshot.map.basePosition.x, snapshot.map.basePosition.y, 48 + basePulse * 7);
+    this.drawBaseObjective(snapshot);
 
     const occupiedSlots = new Set<number>();
     for (const tower of snapshot.towers) {
@@ -559,14 +739,15 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < snapshot.map.towerSlots.length; i += 1) {
       const slot = snapshot.map.towerSlots[i];
       const occupied = occupiedSlots.has(i);
-      this.graphics.fillStyle(occupied ? 0x4c3f2a : 0x8f7e51, occupied ? 0.76 : 0.95);
-      this.graphics.fillCircle(slot.x, slot.y, 14);
-      this.graphics.lineStyle(2, occupied ? 0xb9a271 : 0xe8d39a, 0.88);
-      this.graphics.strokeCircle(slot.x, slot.y, 14);
-      this.graphics.lineStyle(1, 0xefe4c2, 0.6);
-      this.graphics.strokeCircle(slot.x, slot.y, 8);
+      this.worldGraphics.fillStyle(occupied ? 0x3e3222 : 0x8a7347, occupied ? 0.36 : 0.58);
+      this.worldGraphics.fillRoundedRect(slot.x - 11, slot.y - 9, 22, 18, 5);
+      this.worldGraphics.lineStyle(occupied ? 1.6 : 1.9, occupied ? 0xb29b6b : 0xe8d6a4, occupied ? 0.48 : 0.82);
+      this.worldGraphics.strokeRoundedRect(slot.x - 11, slot.y - 9, 22, 18, 5);
+      this.worldGraphics.lineStyle(1, 0x2a2117, 0.35);
+      this.worldGraphics.lineBetween(slot.x - 6, slot.y, slot.x + 6, slot.y);
     }
 
+    this.drawTowerOverlays(snapshot.towers);
     this.drawTowerMoveOverlay(snapshot, occupiedSlots);
     this.drawEnemyOverlays(snapshot.enemies);
     this.drawHeroOverlays(snapshot.heroes);
@@ -582,24 +763,24 @@ export class GameScene extends Phaser.Scene {
 
       if (projectile.kind === "enemy_boss_shockwave") {
         const radius = projectile.radius + progress * 72;
-        this.graphics.lineStyle(4, projectile.color, Math.max(0, 1 - progress));
-        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, radius);
+        this.overlayGraphics.lineStyle(4, projectile.color, Math.max(0, 1 - progress));
+        this.overlayGraphics.strokeCircle(projectile.fromX, projectile.fromY, radius);
         continue;
       }
 
       if (projectile.kind === "enemy_boss_summon") {
         const pulse = projectile.radius + progress * 22;
-        this.graphics.lineStyle(2.5, projectile.color, Math.max(0.15, 0.95 - progress * 0.8));
-        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, pulse);
-        this.graphics.lineStyle(1.5, 0xffffff, Math.max(0, 0.7 - progress));
-        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, pulse * 0.65);
+        this.overlayGraphics.lineStyle(2.5, projectile.color, Math.max(0.15, 0.95 - progress * 0.8));
+        this.overlayGraphics.strokeCircle(projectile.fromX, projectile.fromY, pulse);
+        this.overlayGraphics.lineStyle(1.5, 0xffffff, Math.max(0, 0.7 - progress));
+        this.overlayGraphics.strokeCircle(projectile.fromX, projectile.fromY, pulse * 0.65);
         continue;
       }
 
       if (projectile.kind === "enemy_elite_burst") {
         const radius = projectile.radius + progress * 18;
-        this.graphics.lineStyle(3, projectile.color, Math.max(0, 1 - progress));
-        this.graphics.strokeCircle(projectile.fromX, projectile.fromY, radius);
+        this.overlayGraphics.lineStyle(3, projectile.color, Math.max(0, 1 - progress));
+        this.overlayGraphics.strokeCircle(projectile.fromX, projectile.fromY, radius);
         continue;
       }
 
@@ -615,17 +796,17 @@ export class GameScene extends Phaser.Scene {
       const previousX = Phaser.Math.Linear(projectile.fromX, projectile.toX, previousProgress);
       const previousY = Phaser.Math.Linear(projectile.fromY, projectile.toY, previousProgress);
 
-      this.graphics.lineStyle(Math.max(1, projectile.radius - 1), projectile.color, 0.5);
-      this.graphics.lineBetween(previousX, previousY, x, y);
-      this.graphics.fillStyle(projectile.color, 0.95);
-      this.graphics.fillCircle(x, y, projectile.radius);
+      this.overlayGraphics.lineStyle(Math.max(1, projectile.radius - 1), projectile.color, 0.5);
+      this.overlayGraphics.lineBetween(previousX, previousY, x, y);
+      this.overlayGraphics.fillStyle(projectile.color, 0.95);
+      this.overlayGraphics.fillCircle(x, y, projectile.radius);
 
       if (projectile.kind === "skill_arcane_bolt") {
-        this.graphics.lineStyle(1.5, 0xffffff, 0.45);
-        this.graphics.strokeCircle(x, y, projectile.radius + 2);
+        this.overlayGraphics.lineStyle(1.5, 0xffffff, 0.45);
+        this.overlayGraphics.strokeCircle(x, y, projectile.radius + 2);
       } else if (projectile.kind === "chain_lightning") {
-        this.graphics.lineStyle(1.5, 0xffffff, 0.55);
-        this.graphics.lineBetween(previousX, previousY, x, y);
+        this.overlayGraphics.lineStyle(1.5, 0xffffff, 0.55);
+        this.overlayGraphics.lineBetween(previousX, previousY, x, y);
       }
     }
   }
@@ -636,6 +817,8 @@ export class GameScene extends Phaser.Scene {
       this.hudBackdrop.setVisible(false);
       this.statusBackdrop.setVisible(false);
       this.waveActionContainer.setVisible(false);
+      this.contextPanelContainer.setVisible(false);
+      this.onboardingContainer.setVisible(false);
       return;
     }
 
@@ -645,16 +828,13 @@ export class GameScene extends Phaser.Scene {
     if (!this.snapshot) {
       this.hudText.setText(tr(this.locale, "connecting_title"));
       this.waveActionContainer.setVisible(false);
+      this.contextPanelContainer.setVisible(false);
+      this.onboardingContainer.setVisible(false);
       return;
     }
 
     const hero = this.snapshot.heroes.find((entry) => entry.id === this.playerId);
-    const heroStateLabel =
-      hero?.state === "downed"
-        ? tr(this.locale, "hero_state_downed")
-        : hero?.state === "dead"
-          ? tr(this.locale, "hero_state_dead")
-          : tr(this.locale, "hero_state_alive");
+    const heroStateLabel = hero ? this.getHeroStateLabel(hero) : tr(this.locale, "hero_state_alive");
     const heroInfo = hero
       ? tr(this.locale, "hud_state", {
           state: heroStateLabel,
@@ -675,6 +855,7 @@ export class GameScene extends Phaser.Scene {
     const pauseInfo = this.snapshot.isUpgradeSelectionPhase
       ? tr(this.locale, "upgrade_pause_hud")
       : "";
+    const objectiveInfo = this.getMidRunObjectiveHudLine(this.snapshot.midRunObjective);
 
     const skillsInfo = hero
       ? hero.skills
@@ -701,6 +882,7 @@ export class GameScene extends Phaser.Scene {
           pause: pauseInfo,
         }),
         heroInfo,
+        objectiveInfo,
         hero?.state === "downed"
           ? tr(this.locale, "downed_progress", {
               seconds: Math.ceil(hero.downedRemainingMs / 1000),
@@ -714,6 +896,8 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.updateWaveActionUi(this.snapshot);
+    this.updateContextPanel(this.snapshot);
+    this.updateOnboardingUi(this.snapshot);
   }
 
   private renderScreen(): void {
@@ -982,6 +1166,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: [rect, sheen], scaleX: 1, scaleY: 1, duration: 120 });
     });
     rect.on("pointerdown", () => {
+      this.sfx.playUiClick();
       onClick();
     });
 
@@ -994,6 +1179,7 @@ export class GameScene extends Phaser.Scene {
     this.locale = toggleLocale(this.locale);
     saveLocale(this.locale);
     this.localeButton.setText(tr(this.locale, "language_button"));
+    this.updateSfxButtonLabel();
 
     if (this.screenMode !== "playing") {
       this.renderScreen();
@@ -1015,6 +1201,24 @@ export class GameScene extends Phaser.Scene {
         this.statusText.setText(this.getControlHintText());
       }
     }
+  }
+
+  private handleToggleSfx(): void {
+    const wasEnabled = this.sfx.isEnabled();
+    if (wasEnabled) {
+      this.sfx.playUiClick();
+    }
+
+    const enabled = this.sfx.toggleEnabled();
+    this.updateSfxButtonLabel();
+
+    if (enabled && !wasEnabled) {
+      this.sfx.playUiClick();
+    }
+  }
+
+  private updateSfxButtonLabel(): void {
+    this.sfxButton.setText(tr(this.locale, this.sfx.isEnabled() ? "audio_on" : "audio_off"));
   }
 
   private getDifficultyLabel(difficulty: DifficultyPreset): string {
@@ -1039,6 +1243,34 @@ export class GameScene extends Phaser.Scene {
       default:
         return tr(this.locale, "tower_mage");
     }
+  }
+
+  private getEnemyLabel(enemyType: EnemySnapshot["typeId"]): string {
+    switch (enemyType) {
+      case "swarm":
+        return tr(this.locale, "enemy_swarm");
+      case "ranged":
+        return tr(this.locale, "enemy_ranged");
+      case "armored":
+        return tr(this.locale, "enemy_armored");
+      case "runner":
+        return tr(this.locale, "enemy_runner");
+      case "elite":
+        return tr(this.locale, "enemy_elite");
+      case "boss":
+      default:
+        return tr(this.locale, "enemy_boss");
+    }
+  }
+
+  private getHeroStateLabel(hero: HeroSnapshot): string {
+    if (hero.state === "downed") {
+      return tr(this.locale, "hero_state_downed");
+    }
+    if (hero.state === "dead") {
+      return tr(this.locale, "hero_state_dead");
+    }
+    return tr(this.locale, "hero_state_alive");
   }
 
   private getControlHintText(): string {
@@ -1087,6 +1319,47 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private getMidRunObjectiveHudLine(objective: MidRunObjectiveSnapshot | null): string {
+    if (!objective) {
+      return "";
+    }
+
+    return tr(this.locale, "objective_hud_line", {
+      wave: objective.wave,
+      name: this.getMidRunObjectiveKindLabel(objective.kind),
+      status: this.getMidRunObjectiveStatusLabel(objective.status),
+      progress: objective.progress,
+      target: objective.target,
+      reward: objective.rewardGold,
+    });
+  }
+
+  private getMidRunObjectiveKindLabel(kind: MidRunObjectiveSnapshot["kind"]): string {
+    switch (kind) {
+      case "slayer":
+        return tr(this.locale, "objective_kind_slayer");
+      case "survivor":
+        return tr(this.locale, "objective_kind_survivor");
+      case "bulwark":
+      default:
+        return tr(this.locale, "objective_kind_bulwark");
+    }
+  }
+
+  private getMidRunObjectiveStatusLabel(
+    status: MidRunObjectiveSnapshot["status"],
+  ): string {
+    switch (status) {
+      case "completed":
+        return tr(this.locale, "objective_status_completed");
+      case "failed":
+        return tr(this.locale, "objective_status_failed");
+      case "active":
+      default:
+        return tr(this.locale, "objective_status_active");
+    }
+  }
+
   private getEarlyWaveBonus(intermissionRemainingMs: number): number {
     return Math.max(1, Math.floor(intermissionRemainingMs / EARLY_WAVE_BONUS_INTERVAL_MS));
   }
@@ -1129,6 +1402,7 @@ export class GameScene extends Phaser.Scene {
       sheen.setScale(1, 1);
     });
     this.waveActionButton.on("pointerdown", () => {
+      this.sfx.playUiClick();
       this.tryStartNextWave();
     });
 
@@ -1162,6 +1436,389 @@ export class GameScene extends Phaser.Scene {
         bonus,
       }),
     );
+  }
+
+  private createContextPanelUi(): void {
+    this.contextPanelContainer = this.add.container(0, 0).setDepth(197).setVisible(false);
+    const panel = this.add
+      .rectangle(1110, 364, 308, 266, 0x111d1f, 0.88)
+      .setStrokeStyle(2, 0xbfa76d, 0.82)
+      .setDepth(197);
+    const header = this.add
+      .rectangle(1110, 251, 286, 30, 0x2a3b3f, 0.74)
+      .setStrokeStyle(1, 0xd1bd8a, 0.45)
+      .setDepth(198);
+    this.contextPanelTitle = this.add
+      .text(966, 238, "", {
+        color: "#f4e8c6",
+        fontSize: "18px",
+        fontFamily: TITLE_FONT,
+      })
+      .setDepth(199);
+    this.contextPanelBody = this.add
+      .text(962, 272, "", {
+        color: "#d8d7c5",
+        fontSize: "14px",
+        fontFamily: BODY_FONT,
+        lineSpacing: 3,
+        wordWrap: { width: 290 },
+      })
+      .setDepth(199);
+
+    this.contextPanelContainer.add([panel, header, this.contextPanelTitle, this.contextPanelBody]);
+  }
+
+  private createOnboardingUi(): void {
+    this.onboardingContainer = this.add.container(0, 0).setDepth(196).setVisible(false);
+    const panel = this.add
+      .rectangle(352, 620, 668, 92, 0x121e20, 0.86)
+      .setStrokeStyle(2, 0xb8a06b, 0.78)
+      .setDepth(196);
+    const header = this.add
+      .rectangle(352, 585, 638, 24, 0x2a3b3f, 0.72)
+      .setStrokeStyle(1, 0xd1bd8a, 0.42)
+      .setDepth(197);
+    this.onboardingTitle = this.add
+      .text(44, 575, "", {
+        color: "#f3e8c8",
+        fontSize: "16px",
+        fontFamily: TITLE_FONT,
+      })
+      .setDepth(198);
+    this.onboardingBody = this.add
+      .text(42, 598, "", {
+        color: "#d6d5c1",
+        fontSize: "13px",
+        fontFamily: BODY_FONT,
+        lineSpacing: 2,
+        wordWrap: { width: 628 },
+      })
+      .setDepth(198);
+
+    this.onboardingContainer.add([panel, header, this.onboardingTitle, this.onboardingBody]);
+  }
+
+  private updateOnboardingUi(snapshot: GameSnapshot): void {
+    const baseVisible = this.screenMode === "playing" && snapshot.runStatus === "running";
+    if (!baseVisible) {
+      this.onboardingContainer.setVisible(false);
+      return;
+    }
+
+    const isCompleted = this.isOnboardingCompleted();
+    if (isCompleted && this.time.now > this.onboardingCompletionBannerUntilMs) {
+      this.onboardingContainer.setVisible(false);
+      return;
+    }
+
+    this.onboardingContainer.setVisible(true);
+    this.onboardingTitle.setText(tr(this.locale, "onboarding_title"));
+
+    if (isCompleted) {
+      const hasDownedAlly = this.hasDownedAlly(snapshot);
+      this.onboardingBody.setText(
+        [
+          tr(this.locale, "onboarding_complete"),
+          hasDownedAlly
+            ? tr(this.locale, "onboarding_revive_active")
+            : tr(this.locale, "onboarding_revive_tip"),
+        ].join("\n"),
+      );
+      return;
+    }
+
+    const completedCount = this.getOnboardingCompletedCount();
+    const nextStep = this.getPendingOnboardingStep();
+    const localHero = this.getLocalHero(snapshot);
+    const localTowerCount = snapshot.towers.filter((tower) => tower.ownerId === this.playerId).length;
+    const lines: string[] = [
+      tr(this.locale, "onboarding_progress", {
+        done: completedCount,
+        total: 3,
+      }),
+    ];
+
+    if (nextStep) {
+      lines.push(
+        tr(this.locale, "onboarding_next", {
+          step: this.getOnboardingStepLabel(nextStep),
+        }),
+      );
+      if (nextStep === "moveTower" && localTowerCount <= 0) {
+        lines.push(tr(this.locale, "onboarding_move_wait"));
+      } else if (nextStep === "reroll" && (localHero?.rerollTokens ?? 0) <= 0) {
+        lines.push(tr(this.locale, "onboarding_reroll_wait"));
+      }
+    }
+
+    const hasDownedAlly = this.hasDownedAlly(snapshot);
+    lines.push(
+      hasDownedAlly
+        ? tr(this.locale, "onboarding_revive_active")
+        : tr(this.locale, "onboarding_revive_tip"),
+    );
+    this.onboardingBody.setText(lines.join("\n"));
+  }
+
+  private hasDownedAlly(snapshot: GameSnapshot): boolean {
+    if (!this.playerId) {
+      return false;
+    }
+    return snapshot.heroes.some((hero) => hero.id !== this.playerId && hero.state === "downed");
+  }
+
+  private getOnboardingStepLabel(step: OnboardingStep): string {
+    if (step === "moveTower") {
+      return tr(this.locale, "onboarding_step_move");
+    }
+    if (step === "reroll") {
+      return tr(this.locale, "onboarding_step_reroll");
+    }
+    return tr(this.locale, "onboarding_step_wave");
+  }
+
+  private getPendingOnboardingStep(): OnboardingStep | null {
+    const orderedSteps: OnboardingStep[] = ["moveTower", "reroll", "callWave"];
+    for (const step of orderedSteps) {
+      if (!this.onboardingProgress[step]) {
+        return step;
+      }
+    }
+    return null;
+  }
+
+  private getOnboardingCompletedCount(): number {
+    let count = 0;
+    if (this.onboardingProgress.moveTower) {
+      count += 1;
+    }
+    if (this.onboardingProgress.reroll) {
+      count += 1;
+    }
+    if (this.onboardingProgress.callWave) {
+      count += 1;
+    }
+    return count;
+  }
+
+  private isOnboardingCompleted(): boolean {
+    return (
+      this.onboardingProgress.moveTower &&
+      this.onboardingProgress.reroll &&
+      this.onboardingProgress.callWave
+    );
+  }
+
+  private markOnboardingStep(step: OnboardingStep): void {
+    if (this.onboardingProgress[step]) {
+      return;
+    }
+    this.onboardingProgress[step] = true;
+    this.persistOnboardingProgress();
+    if (this.isOnboardingCompleted()) {
+      this.onboardingCompletionBannerUntilMs = this.time.now + 5000;
+    }
+  }
+
+  private loadOnboardingProgress(): void {
+    const fallback: OnboardingProgress = {
+      moveTower: false,
+      reroll: false,
+      callWave: false,
+    };
+    this.onboardingProgress = fallback;
+
+    try {
+      const raw = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as Partial<OnboardingProgress>;
+      this.onboardingProgress = {
+        moveTower: parsed.moveTower === true,
+        reroll: parsed.reroll === true,
+        callWave: parsed.callWave === true,
+      };
+    } catch {
+      this.onboardingProgress = fallback;
+    }
+  }
+
+  private persistOnboardingProgress(): void {
+    try {
+      localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(this.onboardingProgress));
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  private updateContextPanel(snapshot: GameSnapshot): void {
+    const isVisible = this.screenMode === "playing" && snapshot.runStatus === "running";
+    this.contextPanelContainer.setVisible(isVisible);
+    if (!isVisible) {
+      return;
+    }
+
+    const target = this.resolveContextTarget(snapshot);
+    if (!target) {
+      this.contextPanelTitle.setText(tr(this.locale, "context_panel_title"));
+      this.contextPanelBody.setText(
+        [
+          tr(this.locale, "context_panel_empty"),
+          "",
+          tr(this.locale, "context_legend_title"),
+          `• ${tr(this.locale, "effect_poison")}: ${tr(this.locale, "effect_poison_desc")}`,
+          `• ${tr(this.locale, "effect_shock")}: ${tr(this.locale, "effect_shock_desc")}`,
+          `• ${tr(this.locale, "effect_empowered")}: ${tr(this.locale, "effect_empowered_desc")}`,
+          `• ${tr(this.locale, "effect_downed")}: ${tr(this.locale, "effect_downed_desc")}`,
+        ].join("\n"),
+      );
+      return;
+    }
+
+    if (target.kind === "enemy") {
+      const enemy = target.value;
+      this.contextPanelTitle.setText(
+        tr(this.locale, "context_enemy_title", {
+          name: this.getEnemyLabel(enemy.typeId),
+        }),
+      );
+
+      const lines = [
+        tr(this.locale, "context_hp_line", { hp: enemy.hp, maxHp: enemy.maxHp }),
+        tr(this.locale, "context_speed_line", { speed: enemy.speed }),
+      ];
+
+      if (enemy.isBoss) {
+        lines.push(tr(this.locale, "context_boss_phase_line", { phase: enemy.bossPhase }));
+      }
+      if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
+        lines.push(
+          tr(this.locale, "context_poison_line", {
+            stacks: enemy.poisonStacks,
+            seconds: this.toSeconds(enemy.poisonRemainingMs),
+          }),
+        );
+      }
+      if (enemy.shockedRemainingMs > 0) {
+        lines.push(
+          tr(this.locale, "context_shock_line", {
+            seconds: this.toSeconds(enemy.shockedRemainingMs),
+          }),
+        );
+      }
+      if (enemy.eliteEmpoweredRemainingMs > 0) {
+        lines.push(
+          tr(this.locale, "context_empowered_line", {
+            seconds: this.toSeconds(enemy.eliteEmpoweredRemainingMs),
+          }),
+        );
+      }
+      if (lines.length <= 2) {
+        lines.push(tr(this.locale, "context_no_effects"));
+      }
+
+      this.contextPanelBody.setText(lines.join("\n"));
+      return;
+    }
+
+    if (target.kind === "tower") {
+      const tower = target.value;
+      this.contextPanelTitle.setText(
+        tr(this.locale, "context_tower_title", { name: this.getTowerLabel(tower.typeId) }),
+      );
+      const ownerLabel =
+        tower.ownerId === this.playerId
+          ? tr(this.locale, "context_owner_self")
+          : tr(this.locale, "context_owner_ally");
+
+      const lines = [
+        tr(this.locale, "context_owner_line", { owner: ownerLabel }),
+        tr(this.locale, "context_damage_line", { damage: tower.damage }),
+        tr(this.locale, "context_range_line", { range: tower.range }),
+        tr(this.locale, "context_cooldown_line", { cooldown: (tower.cooldownMs / 1000).toFixed(2) }),
+      ];
+
+      if (this.selectedMoveTowerId === tower.id) {
+        lines.push(tr(this.locale, "context_tower_selected_move"));
+      }
+
+      this.contextPanelBody.setText(lines.join("\n"));
+      return;
+    }
+
+    const hero = target.value;
+    this.contextPanelTitle.setText(tr(this.locale, "context_hero_title", { name: hero.name }));
+    const lines = [
+      tr(this.locale, "context_state_line", { state: this.getHeroStateLabel(hero) }),
+      tr(this.locale, "context_hp_line", { hp: hero.hp, maxHp: hero.maxHp }),
+      tr(this.locale, "context_level_line", { level: hero.level }),
+    ];
+
+    if (hero.state === "downed") {
+      lines.push(
+        tr(this.locale, "context_downed_line", {
+          seconds: this.toSeconds(hero.downedRemainingMs),
+          progress: Math.round((hero.reviveProgressMs / Math.max(1, snapshot.reviveRequiredMs)) * 100),
+        }),
+      );
+    }
+    if (hero.state === "alive" && hero.isReviving) {
+      lines.push(tr(this.locale, "context_reviving_line"));
+    }
+
+    this.contextPanelBody.setText(lines.join("\n"));
+  }
+
+  private resolveContextTarget(snapshot: GameSnapshot): ContextTarget | null {
+    const pointerX = this.pointerWorldX;
+    const pointerY = this.pointerWorldY;
+
+    let bestEnemy: EnemySnapshot | null = null;
+    let enemyDistance = Number.POSITIVE_INFINITY;
+    for (const enemy of snapshot.enemies) {
+      const distance = Math.hypot(enemy.x - pointerX, enemy.y - pointerY);
+      if (distance <= CONTEXT_TARGET_PICK_RADIUS && distance < enemyDistance) {
+        enemyDistance = distance;
+        bestEnemy = enemy;
+      }
+    }
+    if (bestEnemy) {
+      return { kind: "enemy", value: bestEnemy };
+    }
+
+    let bestTower: TowerSnapshot | null = null;
+    let towerDistance = Number.POSITIVE_INFINITY;
+    for (const tower of snapshot.towers) {
+      const distance = Math.hypot(tower.x - pointerX, tower.y - pointerY);
+      if (distance <= CONTEXT_TARGET_PICK_RADIUS && distance < towerDistance) {
+        towerDistance = distance;
+        bestTower = tower;
+      }
+    }
+    if (bestTower) {
+      return { kind: "tower", value: bestTower };
+    }
+
+    let bestHero: HeroSnapshot | null = null;
+    let heroDistance = Number.POSITIVE_INFINITY;
+    for (const hero of snapshot.heroes) {
+      const distance = Math.hypot(hero.x - pointerX, hero.y - pointerY);
+      if (distance <= CONTEXT_TARGET_PICK_RADIUS && distance < heroDistance) {
+        heroDistance = distance;
+        bestHero = hero;
+      }
+    }
+    if (bestHero) {
+      return { kind: "hero", value: bestHero };
+    }
+
+    return null;
+  }
+
+  private toSeconds(ms: number): number {
+    return Math.max(0, Math.ceil(ms / 1000));
   }
 
   private getRunStatusLabel(runStatus: RunSummary["runStatus"] | undefined): string {
@@ -1381,6 +2038,7 @@ export class GameScene extends Phaser.Scene {
       const bobY = Math.sin((this.time.now + tower.id * 121) / 340) * 0.55;
       sprite.setPosition(tower.x, tower.y + bobY);
       sprite.setDepth(30 + tower.y * 0.05);
+      sprite.setScale(this.getTowerSpriteScale(tower.typeId));
       sprite.setAlpha(1);
     }
 
@@ -1411,8 +2069,8 @@ export class GameScene extends Phaser.Scene {
       const bobY = Math.sin((this.time.now + enemy.id * 97) / 180) * (enemy.isBoss ? 1.2 : 0.8);
       sprite.setPosition(enemy.x, enemy.y + bobY);
       sprite.setDepth(32 + enemy.y * 0.05);
-      sprite.setTint(ENEMY_TINTS[enemy.typeId]);
-      sprite.setScale(enemy.isBoss ? 1.48 : 1);
+      sprite.clearTint();
+      sprite.setScale(this.getEnemySpriteScale(enemy));
       sprite.setAlpha(1);
     }
 
@@ -1443,7 +2101,7 @@ export class GameScene extends Phaser.Scene {
       const bobY = hero.state === "alive" ? Math.sin((this.time.now + hero.x) / 210) * 0.8 : 0;
       sprite.setPosition(hero.x, hero.y + bobY);
       sprite.setDepth(34 + hero.y * 0.05);
-      sprite.setScale(hero.id === this.playerId ? 1.1 : 1);
+      sprite.setScale(this.getHeroSpriteScale(hero, hero.id === this.playerId));
       sprite.setAlpha(hero.state === "dead" ? 0.86 : 1);
 
       if (hero.id === this.playerId && hero.state === "alive") {
@@ -1464,42 +2122,66 @@ export class GameScene extends Phaser.Scene {
 
   private drawEnemyOverlays(enemies: EnemySnapshot[]): void {
     for (const enemy of enemies) {
-      this.graphics.fillStyle(0x090807, 0.34);
-      this.graphics.fillEllipse(
+      this.worldGraphics.fillStyle(0x090807, 0.3);
+      this.worldGraphics.fillEllipse(
         enemy.x,
         enemy.y + (enemy.isBoss ? 13 : 9),
         enemy.isBoss ? 34 : 22,
         enemy.isBoss ? 12 : 8,
       );
 
+      this.overlayGraphics.lineStyle(1.8, 0x0f1411, 0.85);
+      this.overlayGraphics.strokeCircle(enemy.x, enemy.y - 1, enemy.isBoss ? 16.5 : 10.5);
+
       if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
         const pulse = 1 + Math.sin(this.time.now / 95) * 1.3;
-        this.graphics.lineStyle(2.5, 0xff9f4e, 0.95);
-        this.graphics.strokeCircle(enemy.x, enemy.y, 14 + pulse * 1.2);
+        this.overlayGraphics.lineStyle(2.5, 0xff9f4e, 0.95);
+        this.overlayGraphics.strokeCircle(enemy.x, enemy.y, 14 + pulse * 1.2);
       }
 
       if (enemy.isBoss) {
         const phaseColor =
           enemy.bossPhase >= 3 ? 0xff4e7c : enemy.bossPhase >= 2 ? 0xffa55a : 0xd78294;
-        this.graphics.lineStyle(2.5, phaseColor, 0.9);
-        this.graphics.strokeCircle(enemy.x, enemy.y - 1, 20 + enemy.bossPhase * 2);
+        this.overlayGraphics.lineStyle(2.5, phaseColor, 0.9);
+        this.overlayGraphics.strokeCircle(enemy.x, enemy.y - 1, 20 + enemy.bossPhase * 2);
       }
 
       if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
-        this.graphics.lineStyle(2, 0x7ad866, 0.85);
-        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
+        this.overlayGraphics.lineStyle(2, 0x7ad866, 0.85);
+        this.overlayGraphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
       }
 
       if (enemy.shockedRemainingMs > 0) {
-        this.graphics.lineStyle(2, 0x86ecff, 0.85);
-        this.graphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 21 : 15);
+        this.overlayGraphics.lineStyle(2, 0x86ecff, 0.85);
+        this.overlayGraphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 21 : 15);
       }
 
       const hpRatio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
-      this.graphics.fillStyle(0x1f0f11, 0.95);
-      this.graphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26, 5, 2);
-      this.graphics.fillStyle(0x9cca74, 1);
-      this.graphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26 * hpRatio, 5, 2);
+      this.overlayGraphics.fillStyle(0x1f0f11, 0.95);
+      this.overlayGraphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26, 5, 2);
+      this.overlayGraphics.fillStyle(0x9cca74, 1);
+      this.overlayGraphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26 * hpRatio, 5, 2);
+    }
+  }
+
+  private drawTowerOverlays(towers: TowerSnapshot[]): void {
+    for (const tower of towers) {
+      const isLocalTower = tower.ownerId === this.playerId;
+      const accent =
+        tower.typeId === "defender" ? 0x8bc4ff : tower.typeId === "archer" ? 0xd8ed8f : 0xc7a8ff;
+
+      this.worldGraphics.fillStyle(0x060807, 0.3);
+      this.worldGraphics.fillEllipse(tower.x, tower.y + 10, 24, 9);
+
+      this.overlayGraphics.lineStyle(isLocalTower ? 2.3 : 1.7, accent, isLocalTower ? 0.9 : 0.68);
+      this.overlayGraphics.strokeCircle(tower.x, tower.y - 2, isLocalTower ? 13 : 12);
+
+      if (isLocalTower) {
+        this.overlayGraphics.lineStyle(1.2, 0xf7f2da, 0.6);
+        this.overlayGraphics.strokeCircle(tower.x, tower.y - 2, 9.8);
+      }
+
+      this.drawTowerGlyph(tower);
     }
   }
 
@@ -1512,27 +2194,27 @@ export class GameScene extends Phaser.Scene {
 
     for (const hero of heroes) {
       const isLocalHero = hero.id === this.playerId;
-      this.graphics.fillStyle(0x090807, 0.3);
-      this.graphics.fillEllipse(hero.x, hero.y + 11, 24, 10);
+      this.worldGraphics.fillStyle(0x090807, 0.29);
+      this.worldGraphics.fillEllipse(hero.x, hero.y + 11, 24, 10);
 
-      this.graphics.lineStyle(
+      this.overlayGraphics.lineStyle(
         2,
         isLocalHero ? 0xfaf3cc : 0xd7d7d7,
         hero.state === "alive" ? 0.95 : 0.6,
       );
-      this.graphics.strokeCircle(hero.x, hero.y, 11);
+      this.overlayGraphics.strokeCircle(hero.x, hero.y, 11);
 
       if (hero.state === "downed") {
         const reviveRequiredMs = Math.max(1, this.snapshot?.reviveRequiredMs ?? 2800);
         const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / reviveRequiredMs : 0;
-        this.graphics.lineStyle(2, 0x90f5a3, 0.9);
-        this.graphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
+        this.overlayGraphics.lineStyle(2, 0x90f5a3, 0.9);
+        this.overlayGraphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
       }
 
       if (hero.state === "dead") {
-        this.graphics.lineStyle(2, 0x2e2727, 1);
-        this.graphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
-        this.graphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
+        this.overlayGraphics.lineStyle(2, 0x2e2727, 1);
+        this.overlayGraphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
+        this.overlayGraphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
       }
 
       if (hero.state === "alive" && hero.isReviving && hero.reviveTargetId) {
@@ -1542,11 +2224,11 @@ export class GameScene extends Phaser.Scene {
         }
 
         const pulse = 0.5 + Math.sin(this.time.now / 95) * 0.5;
-        this.graphics.lineStyle(2.4, 0x93ffce, 0.9);
-        this.graphics.lineBetween(hero.x, hero.y - 1, target.x, target.y - 1);
-        this.graphics.lineStyle(1.4, 0xe5fff5, 0.75);
-        this.graphics.strokeCircle(hero.x, hero.y - 2, 12 + pulse * 1.5);
-        this.graphics.strokeCircle(target.x, target.y - 2, 13 + pulse * 2.1);
+        this.overlayGraphics.lineStyle(2.4, 0x93ffce, 0.9);
+        this.overlayGraphics.lineBetween(hero.x, hero.y - 1, target.x, target.y - 1);
+        this.overlayGraphics.lineStyle(1.4, 0xe5fff5, 0.75);
+        this.overlayGraphics.strokeCircle(hero.x, hero.y - 2, 12 + pulse * 1.5);
+        this.overlayGraphics.strokeCircle(target.x, target.y - 2, 13 + pulse * 2.1);
       }
     }
   }
@@ -1564,8 +2246,12 @@ export class GameScene extends Phaser.Scene {
 
         const slot = snapshot.map.towerSlots[i];
         const isHovered = i === hoveredSlotIndex;
-        this.graphics.lineStyle(isHovered ? 2.5 : 1.6, isHovered ? 0xf7efcb : 0x77c8be, isHovered ? 0.95 : 0.55);
-        this.graphics.strokeCircle(slot.x, slot.y, isHovered ? 19 : 17);
+        this.overlayGraphics.lineStyle(
+          isHovered ? 2.5 : 1.6,
+          isHovered ? 0xf7efcb : 0x77c8be,
+          isHovered ? 0.95 : 0.55,
+        );
+        this.overlayGraphics.strokeCircle(slot.x, slot.y, isHovered ? 19 : 17);
       }
     }
 
@@ -1574,18 +2260,52 @@ export class GameScene extends Phaser.Scene {
     }
 
     const pulse = 0.5 + Math.sin(this.time.now / 125) * 0.5;
-    this.graphics.lineStyle(3, 0x8af7ff, 0.95);
-    this.graphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 17 + pulse * 2.2);
-    this.graphics.lineStyle(1.4, 0xe5fdfd, 0.75);
-    this.graphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 11 + pulse * 1.6);
+    this.overlayGraphics.lineStyle(3, 0x8af7ff, 0.95);
+    this.overlayGraphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 17 + pulse * 2.2);
+    this.overlayGraphics.lineStyle(1.4, 0xe5fdfd, 0.75);
+    this.overlayGraphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 11 + pulse * 1.6);
 
     if (hoveredSlotIndex < 0 || occupiedSlots.has(hoveredSlotIndex)) {
       return;
     }
 
     const targetSlot = snapshot.map.towerSlots[hoveredSlotIndex];
-    this.graphics.lineStyle(2, 0xe9f4d0, 0.75);
-    this.graphics.lineBetween(selectedTower.x, selectedTower.y - 1, targetSlot.x, targetSlot.y);
+    this.overlayGraphics.lineStyle(2, 0xe9f4d0, 0.75);
+    this.overlayGraphics.lineBetween(selectedTower.x, selectedTower.y - 1, targetSlot.x, targetSlot.y);
+  }
+
+  private drawTowerGlyph(tower: TowerSnapshot): void {
+    const x = tower.x;
+    const y = tower.y - 3;
+
+    if (tower.typeId === "defender") {
+      this.overlayGraphics.fillStyle(0x36577f, 0.9);
+      this.overlayGraphics.fillRoundedRect(x - 4, y - 5, 8, 11, 2);
+      this.overlayGraphics.lineStyle(1, 0xe6f4ff, 0.8);
+      this.overlayGraphics.strokeRoundedRect(x - 4, y - 5, 8, 11, 2);
+      this.overlayGraphics.lineStyle(1.1, 0xbadfff, 0.82);
+      this.overlayGraphics.lineBetween(x, y - 4, x, y + 4);
+      return;
+    }
+
+    if (tower.typeId === "archer") {
+      this.overlayGraphics.lineStyle(1.1, 0xe8f2c6, 0.9);
+      this.overlayGraphics.strokeCircle(x - 1, y, 4);
+      this.overlayGraphics.lineStyle(1.3, 0xc7df9f, 0.95);
+      this.overlayGraphics.lineBetween(x + 1, y - 5, x + 4, y + 3);
+      this.overlayGraphics.fillStyle(0xf5e8bd, 0.9);
+      this.overlayGraphics.fillTriangle(x + 4, y + 3, x + 1, y + 1, x + 6, y);
+      return;
+    }
+
+    this.overlayGraphics.fillStyle(0x9f88f7, 0.92);
+    this.overlayGraphics.fillCircle(x, y, 3);
+    this.overlayGraphics.lineStyle(1.1, 0xf0eaff, 0.8);
+    this.overlayGraphics.lineBetween(x - 5, y, x + 5, y);
+    this.overlayGraphics.lineBetween(x, y - 5, x, y + 5);
+    this.overlayGraphics.lineStyle(0.8, 0xd8cbff, 0.7);
+    this.overlayGraphics.lineBetween(x - 3, y - 3, x + 3, y + 3);
+    this.overlayGraphics.lineBetween(x + 3, y - 3, x - 3, y + 3);
   }
 
   private getHeroTextureKey(hero: HeroSnapshot): string {
@@ -1600,16 +2320,59 @@ export class GameScene extends Phaser.Scene {
     return HERO_TEXTURE_KEYS.alive[frame];
   }
 
+  private getHeroSpriteScale(hero: HeroSnapshot, isLocalHero: boolean): number {
+    if (hero.state === "dead") {
+      return isLocalHero ? 1.16 : 1.08;
+    }
+    if (hero.state === "downed") {
+      return isLocalHero ? 1.22 : 1.12;
+    }
+    return isLocalHero ? 1.28 : 1.16;
+  }
+
   private getEnemyTextureKey(enemy: EnemySnapshot): string {
     if (enemy.isBoss) {
-      const frame = (Math.floor(this.time.now / 240) + enemy.id) % ENEMY_TEXTURE_KEYS.boss.length;
+      const frame = (Math.floor(this.time.now / 220) + enemy.id) % ENEMY_TEXTURE_KEYS.boss.length;
       return ENEMY_TEXTURE_KEYS.boss[frame];
     }
 
-    const cadence = enemy.typeId === "runner" ? 140 : 210;
-    const frame =
-      (Math.floor(this.time.now / cadence) + enemy.id) % ENEMY_TEXTURE_KEYS.common.length;
-    return ENEMY_TEXTURE_KEYS.common[frame];
+    const cadence = enemy.typeId === "runner" ? 120 : enemy.typeId === "elite" ? 160 : 200;
+    const framePair = ENEMY_TEXTURE_KEYS[enemy.typeId];
+    const frame = (Math.floor(this.time.now / cadence) + enemy.id) % framePair.length;
+    return framePair[frame];
+  }
+
+  private getEnemySpriteScale(enemy: EnemySnapshot): number {
+    if (enemy.isBoss) {
+      return 1.7;
+    }
+
+    switch (enemy.typeId) {
+      case "swarm":
+        return 1.04;
+      case "ranged":
+        return 1.08;
+      case "armored":
+        return 1.16;
+      case "runner":
+        return 1;
+      case "elite":
+        return 1.24;
+      default:
+        return 1.08;
+    }
+  }
+
+  private getTowerSpriteScale(towerType: TowerTypeId): number {
+    switch (towerType) {
+      case "defender":
+        return 1.2;
+      case "archer":
+        return 1.16;
+      case "mage":
+      default:
+        return 1.22;
+    }
   }
 
   private getTowerTextureKey(towerType: TowerTypeId): string {
@@ -1642,14 +2405,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawPixelVignette(width: number, height: number): void {
-    this.graphics.fillStyle(0x050705, 0.12);
+    this.overlayGraphics.fillStyle(0x050705, 0.06);
     for (let y = 0; y < height; y += TERRAIN_TILE_SIZE * 2) {
-      this.graphics.fillRect(0, y, width, 1);
+      this.overlayGraphics.fillRect(0, y, width, 1);
     }
 
-    this.graphics.fillStyle(0x070907, 0.22);
-    this.graphics.fillRect(0, 0, width, 20);
-    this.graphics.fillRect(0, height - 20, width, 20);
+    this.overlayGraphics.fillStyle(0x070907, 0.1);
+    this.overlayGraphics.fillRect(0, 0, width, 16);
+    this.overlayGraphics.fillRect(0, height - 16, width, 16);
   }
 
   private tileNoise(x: number, y: number): number {
@@ -1694,9 +2457,57 @@ export class GameScene extends Phaser.Scene {
 
   private drawAmbientMotes(): void {
     for (const mote of this.ambientMotes) {
-      this.graphics.fillStyle(0xe6e8cf, mote.alpha);
-      this.graphics.fillCircle(mote.x, mote.y, mote.size);
+      this.worldGraphics.fillStyle(0xe6e8cf, mote.alpha);
+      this.worldGraphics.fillCircle(mote.x, mote.y, mote.size);
     }
+  }
+
+  private drawBaseObjective(snapshot: GameSnapshot): void {
+    const { x, y } = snapshot.map.basePosition;
+    const hpRatio = snapshot.baseMaxHp > 0 ? snapshot.baseHp / snapshot.baseMaxHp : 0;
+    const pulse = 0.5 + Math.sin(this.time.now / 240) * 0.5;
+    const bob = Math.sin(this.time.now / 260) * 1.4;
+    const spin = this.time.now / 780;
+
+    this.worldGraphics.fillStyle(0x21443a, 0.68);
+    this.worldGraphics.fillEllipse(x, y + 9, 58, 24);
+    this.worldGraphics.fillStyle(0x3e705f, 0.9);
+    this.worldGraphics.fillCircle(x, y + 1, 22);
+    this.worldGraphics.lineStyle(2, 0x8bc4b3, 0.56);
+    this.worldGraphics.strokeCircle(x, y + 1, 22);
+
+    this.overlayGraphics.lineStyle(3, 0xbff6e6, 0.62);
+    this.overlayGraphics.strokeCircle(x, y - 2, 29 + pulse * 2.4);
+    this.overlayGraphics.lineStyle(2, 0x87dfc5, 0.78);
+    this.overlayGraphics.strokeCircle(x, y - 2, 17 + pulse * 1.2);
+
+    for (let i = 0; i < 4; i += 1) {
+      const angle = spin + (Math.PI / 2) * i;
+      const lx = x + Math.cos(angle) * 12;
+      const ly = y - 2 + Math.sin(angle) * 8;
+      this.overlayGraphics.fillStyle(0xc7ffea, 0.75);
+      this.overlayGraphics.fillCircle(lx, ly, 1.8);
+    }
+
+    this.overlayGraphics.fillStyle(0x5dcdb2, 0.96);
+    this.overlayGraphics.fillCircle(x, y - 3 + bob, 8);
+    this.overlayGraphics.fillStyle(0xecfff8, 0.96);
+    this.overlayGraphics.fillCircle(x, y - 5 + bob, 3);
+
+    this.overlayGraphics.lineStyle(4, 0x1d2a22, 0.9);
+    this.overlayGraphics.strokeCircle(x, y - 2, 34);
+    const hpColor = hpRatio > 0.55 ? 0x8fe46f : hpRatio > 0.25 ? 0xecc164 : 0xe06f64;
+    this.overlayGraphics.lineStyle(3, hpColor, 0.95);
+    this.overlayGraphics.beginPath();
+    this.overlayGraphics.arc(
+      x,
+      y - 2,
+      34,
+      -Math.PI / 2,
+      -Math.PI / 2 + Math.PI * 2 * Phaser.Math.Clamp(hpRatio, 0, 1),
+      false,
+    );
+    this.overlayGraphics.strokePath();
   }
 
   private getSelectedOwnedTower(snapshot = this.snapshot): TowerSnapshot | null {
