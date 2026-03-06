@@ -1,19 +1,23 @@
 @import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Spectral:wght@400;500;600;700&display=swap");
 
 :root {
-  --bg-void: #090f11;
-  --bg-forest: #152324;
-  --bg-crown: #314b46;
-  --ink-main: #f3ecd3;
-  --ink-muted: #c8c2ab;
-  --gold-1: #b59559;
-  --gold-2: #ead39b;
-  --panel-deep: rgba(15, 23, 24, 0.86);
-  --panel-mid: rgba(22, 34, 36, 0.78);
-  --panel-line: rgba(216, 191, 129, 0.64);
-  --accent-easy: #6ebd88;
-  --accent-normal: #d4b56e;
-  --accent-hard: #d26b5e;
+  --bg-void: #050810;
+  --bg-stone: #0c1220;
+  --bg-slate: #1e2840;
+  --ink-main: #d4e8f0;
+  --ink-muted: #8090a8;
+  --teal-1: #009e98;
+  --teal-2: #00e5d4;
+  --amber-1: #c08030;
+  --amber-2: #f09840;
+  --purple-1: #6c38c0;
+  --purple-2: #a060f0;
+  --panel-deep: rgba(5, 8, 16, 0.94);
+  --panel-mid: rgba(12, 18, 32, 0.88);
+  --panel-line: rgba(0, 229, 212, 0.48);
+  --accent-easy: #50d068;
+  --accent-normal: #00e5d4;
+  --accent-hard: #e04050;
   color: var(--ink-main);
   background: var(--bg-void);
   font-family: "Spectral", "Segoe UI", serif;
@@ -34,9 +38,10 @@ body {
   height: 100%;
   color: var(--ink-main);
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(112, 168, 141, 0.32) 0%, rgba(112, 168, 141, 0) 65%),
-    radial-gradient(1100px 680px at 90% -20%, rgba(201, 159, 88, 0.24) 0%, rgba(201, 159, 88, 0) 67%),
-    linear-gradient(180deg, var(--bg-crown) 0%, var(--bg-forest) 40%, var(--bg-void) 100%);
+    radial-gradient(900px 500px at 20% -5%, rgba(0, 229, 212, 0.08) 0%, rgba(0, 229, 212, 0) 65%),
+    radial-gradient(800px 600px at 85% -10%, rgba(108, 56, 192, 0.12) 0%, rgba(108, 56, 192, 0) 67%),
+    radial-gradient(1200px 700px at 50% 110%, rgba(66, 30, 120, 0.18) 0%, rgba(66, 30, 120, 0) 60%),
+    linear-gradient(180deg, var(--bg-slate) 0%, var(--bg-stone) 35%, var(--bg-void) 100%);
 }
 
 #game-shell {
@@ -49,13 +54,14 @@ body {
 }
 
 #game-root {
-  border: 2px solid rgba(187, 161, 102, 0.86);
+  border: 1px solid rgba(0, 229, 212, 0.36);
   border-radius: 16px;
   overflow: hidden;
   box-shadow:
-    0 28px 64px rgba(0, 0, 0, 0.56),
-    0 0 0 1px rgba(230, 211, 159, 0.14),
-    0 0 36px rgba(122, 181, 152, 0.18);
+    0 32px 72px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(160, 96, 240, 0.12),
+    0 0 48px rgba(0, 229, 212, 0.10),
+    0 0 80px rgba(66, 30, 120, 0.18);
   animation: shell-rise 520ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
 }
 
@@ -65,8 +71,8 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  background: rgba(7, 10, 12, 0.58);
-  backdrop-filter: blur(4px);
+  background: rgba(5, 8, 16, 0.62);
+  backdrop-filter: blur(6px);
   padding: 20px 20px 34px;
 }
 
@@ -77,29 +83,32 @@ body {
 .upgrade-panel {
   width: min(980px, 100%);
   background:
-    radial-gradient(120% 140% at 15% 10%, rgba(93, 132, 120, 0.32) 0%, rgba(93, 132, 120, 0) 65%),
-    linear-gradient(180deg, rgba(30, 43, 45, 0.98) 0%, rgba(22, 31, 34, 0.97) 100%);
-  border: 2px solid var(--panel-line);
+    radial-gradient(120% 140% at 10% 5%, rgba(0, 158, 152, 0.14) 0%, rgba(0, 158, 152, 0) 55%),
+    radial-gradient(100% 120% at 90% 95%, rgba(108, 56, 192, 0.12) 0%, rgba(108, 56, 192, 0) 55%),
+    linear-gradient(180deg, rgba(14, 20, 38, 0.98) 0%, rgba(8, 12, 24, 0.97) 100%);
+  border: 1px solid var(--panel-line);
   border-radius: 14px;
   padding: 18px;
   box-shadow:
-    0 26px 62px rgba(0, 0, 0, 0.52),
-    0 0 0 1px rgba(243, 223, 170, 0.2) inset;
+    0 28px 64px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(0, 229, 212, 0.10) inset,
+    0 0 32px rgba(0, 229, 212, 0.06);
   animation: overlay-enter 240ms ease-out both;
 }
 
 .upgrade-panel h2 {
   margin: 0;
-  color: #f4e8c6;
-  font-size: clamp(28px, 3vw, 36px);
-  letter-spacing: 0.04em;
+  color: #b0f0ec;
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: 0.06em;
   font-family: "Cinzel", "Palatino Linotype", serif;
+  text-shadow: 0 0 20px rgba(0, 229, 212, 0.4);
 }
 
 .upgrade-subtitle {
   margin: 8px 0 14px;
   color: var(--ink-muted);
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .upgrade-grid {
@@ -118,20 +127,20 @@ body {
 
 .upgrade-reroll-count {
   margin: 0;
-  color: #d7c89f;
+  color: var(--ink-muted);
   font-size: 14px;
   letter-spacing: 0.02em;
 }
 
 .upgrade-reroll-button {
-  border: 1px solid rgba(204, 183, 129, 0.75);
+  border: 1px solid rgba(0, 229, 212, 0.5);
   border-radius: 9px;
-  background: linear-gradient(180deg, rgba(75, 92, 87, 0.95), rgba(53, 66, 62, 0.95));
-  color: #f2ebda;
+  background: linear-gradient(180deg, rgba(0, 158, 152, 0.22), rgba(0, 80, 80, 0.18));
+  color: #a0f0ec;
   font-family: "Cinzel", "Palatino Linotype", serif;
   font-size: 15px;
   letter-spacing: 0.04em;
-  padding: 8px 12px;
+  padding: 8px 14px;
   cursor: pointer;
   transition:
     transform 140ms ease,
@@ -141,68 +150,70 @@ body {
 
 .upgrade-reroll-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
-  border-color: rgba(237, 216, 156, 0.95);
+  box-shadow: 0 8px 24px rgba(0, 229, 212, 0.22);
+  border-color: rgba(0, 229, 212, 0.9);
 }
 
 .upgrade-reroll-button:disabled {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.4;
 }
 
 .upgrade-card {
-  border: 1px solid rgba(165, 176, 150, 0.3);
+  border: 1px solid rgba(0, 229, 212, 0.18);
   border-radius: 11px;
-  background: linear-gradient(180deg, rgba(48, 58, 60, 0.95), rgba(37, 46, 49, 0.95));
-  color: #f3f0e2;
+  background: linear-gradient(180deg, rgba(20, 28, 52, 0.96), rgba(12, 18, 38, 0.96));
+  color: var(--ink-main);
   text-align: left;
   padding: 12px;
   cursor: pointer;
   transition:
     transform 140ms ease,
     border-color 140ms ease,
-    box-shadow 160ms ease,
-    background-color 140ms ease;
+    box-shadow 160ms ease;
 }
 
 .upgrade-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(233, 211, 151, 0.86);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+  border-color: rgba(0, 229, 212, 0.72);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.44),
+    0 0 16px rgba(0, 229, 212, 0.12);
 }
 
 .upgrade-card.rarity-common {
-  border-color: rgba(157, 177, 147, 0.42);
+  border-color: rgba(128, 144, 168, 0.38);
 }
 
 .upgrade-card.rarity-rare {
-  border-color: rgba(112, 190, 157, 0.55);
+  border-color: rgba(0, 158, 152, 0.52);
 }
 
 .upgrade-card.rarity-epic {
-  border-color: rgba(223, 162, 95, 0.68);
-  box-shadow: 0 0 0 1px rgba(223, 162, 95, 0.18) inset;
+  border-color: rgba(160, 96, 240, 0.62);
+  box-shadow: 0 0 0 1px rgba(160, 96, 240, 0.14) inset;
 }
 
 .upgrade-name {
   margin: 0 0 6px;
-  font-size: 20px;
+  font-size: 19px;
   font-family: "Cinzel", "Palatino Linotype", serif;
+  color: #c8f0ee;
 }
 
 .upgrade-rarity {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #d3c39a;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
 }
 
 .upgrade-description {
   margin: 0;
-  font-size: 15px;
-  color: #e4ecdd;
-  line-height: 1.34;
+  font-size: 14px;
+  color: #a8c0d0;
+  line-height: 1.4;
 }
 
 @keyframes shell-rise {

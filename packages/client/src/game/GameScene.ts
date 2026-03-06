@@ -24,6 +24,7 @@ import {
   trSkillName,
   type Locale,
 } from "../i18n";
+import { MusicEngine, type MusicTheme } from "../audio/MusicEngine";
 import { SfxEngine } from "../audio/SfxEngine";
 import { GameClient } from "../network/GameClient";
 import { UpgradeOverlay } from "../ui/UpgradeOverlay";
@@ -44,7 +45,7 @@ const TOWER_PICK_RADIUS = 26;
 const CONTEXT_TARGET_PICK_RADIUS = 28;
 const ONBOARDING_STORAGE_KEY = "pals_defence_onboarding_advanced_v1";
 
-type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd";
+type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd" | "settings";
 
 interface ActiveProjectile {
   id: number;
@@ -93,6 +94,7 @@ export class GameScene extends Phaser.Scene {
   private statusBackdrop!: Phaser.GameObjects.Rectangle;
   private localeButton!: Phaser.GameObjects.Text;
   private sfxButton!: Phaser.GameObjects.Text;
+  private musicButton!: Phaser.GameObjects.Text;
   private waveActionContainer!: Phaser.GameObjects.Container;
   private waveActionButton!: Phaser.GameObjects.Rectangle;
   private waveActionLabel!: Phaser.GameObjects.Text;
@@ -104,6 +106,7 @@ export class GameScene extends Phaser.Scene {
   private onboardingTitle!: Phaser.GameObjects.Text;
   private onboardingBody!: Phaser.GameObjects.Text;
   private readonly sfx = new SfxEngine();
+  private readonly music = new MusicEngine();
   private onboardingProgress: OnboardingProgress = {
     moveTower: false,
     reroll: false,
@@ -176,7 +179,7 @@ export class GameScene extends Phaser.Scene {
 
     this.hudText = this.add
       .text(12, 10, "", {
-        color: "#f3ecd5",
+        color: "#c8e8f0",
         fontSize: "17px",
         fontFamily: BODY_FONT,
         align: "left",
@@ -186,22 +189,22 @@ export class GameScene extends Phaser.Scene {
 
     this.statusText = this.add
       .text(12, 838, "Pals Defence", {
-        color: "#e8d8a8",
+        color: "#8090a8",
         fontSize: "14px",
         fontFamily: BODY_FONT,
       })
       .setDepth(100);
 
     this.hudBackdrop = this.add
-      .rectangle(8, 8, 950, 112, 0x0d1919, 0.58)
+      .rectangle(8, 8, 950, 112, 0x050810, 0.72)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0xcab97a, 0.45)
+      .setStrokeStyle(1, 0x00e5d4, 0.32)
       .setDepth(90);
 
     this.statusBackdrop = this.add
-      .rectangle(8, 854, 620, 30, 0x0d1919, 0.58)
+      .rectangle(8, 854, 620, 30, 0x050810, 0.72)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0xcab97a, 0.45)
+      .setStrokeStyle(1, 0x00e5d4, 0.32)
       .setDepth(90);
 
     this.screenLayer = this.add.container(0, 0).setDepth(300);
@@ -210,7 +213,7 @@ export class GameScene extends Phaser.Scene {
     this.loadOnboardingProgress();
     this.localeButton = this.add
       .text(1582, 12, tr(this.locale, "language_button"), {
-        color: "#f2e8c6",
+        color: "#8090a8",
         fontSize: "18px",
         fontFamily: TITLE_FONT,
       })
@@ -218,10 +221,10 @@ export class GameScene extends Phaser.Scene {
       .setDepth(180)
       .setInteractive({ useHandCursor: true });
     this.localeButton.on("pointerover", () => {
-      this.localeButton.setColor("#fff6de");
+      this.localeButton.setColor("#00e5d4");
     });
     this.localeButton.on("pointerout", () => {
-      this.localeButton.setColor("#f2e8c6");
+      this.localeButton.setColor("#8090a8");
     });
     this.localeButton.on("pointerdown", () => {
       this.sfx.playUiClick();
@@ -229,7 +232,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.sfxButton = this.add
       .text(1462, 12, "", {
-        color: "#d9d8c8",
+        color: "#8090a8",
         fontSize: "15px",
         fontFamily: BODY_FONT,
       })
@@ -237,15 +240,35 @@ export class GameScene extends Phaser.Scene {
       .setDepth(180)
       .setInteractive({ useHandCursor: true });
     this.sfxButton.on("pointerover", () => {
-      this.sfxButton.setColor("#fff6de");
+      this.sfxButton.setColor("#00e5d4");
     });
     this.sfxButton.on("pointerout", () => {
-      this.sfxButton.setColor("#d9d8c8");
+      this.sfxButton.setColor("#8090a8");
     });
     this.sfxButton.on("pointerdown", () => {
       this.handleToggleSfx();
     });
     this.updateSfxButtonLabel();
+
+    this.musicButton = this.add
+      .text(1330, 12, "", {
+        color: "#8090a8",
+        fontSize: "15px",
+        fontFamily: BODY_FONT,
+      })
+      .setOrigin(1, 0)
+      .setDepth(180)
+      .setInteractive({ useHandCursor: true });
+    this.musicButton.on("pointerover", () => {
+      this.musicButton.setColor("#fff6de");
+    });
+    this.musicButton.on("pointerout", () => {
+      this.musicButton.setColor("#d9d8c8");
+    });
+    this.musicButton.on("pointerdown", () => {
+      this.handleToggleMusic();
+    });
+    this.updateMusicButtonLabel();
 
     this.createWaveActionUi();
     this.createContextPanelUi();
@@ -279,9 +302,11 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.once("pointerdown", () => {
       this.sfx.prime();
+      this.music.prime();
     });
     this.input.keyboard?.once("keydown", () => {
       this.sfx.prime();
+      this.music.prime();
     });
 
     this.client.setHandlers({
@@ -326,6 +351,7 @@ export class GameScene extends Phaser.Scene {
         });
       },
       onRunEnded: (summary, progression) => {
+        this.music.stop();
         if (summary.runStatus === "won") {
           this.sfx.playVictory();
         } else {
@@ -615,6 +641,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleSnapshotAudio(previousSnapshot: GameSnapshot | null, snapshot: GameSnapshot): void {
+    this.updateMusicTheme(snapshot);
+
     if (!previousSnapshot) {
       return;
     }
@@ -634,6 +662,14 @@ export class GameScene extends Phaser.Scene {
 
     this.handleTowerAudio(previousSnapshot, snapshot);
     this.handleReviveAudio(previousSnapshot, snapshot);
+  }
+
+  private updateMusicTheme(snapshot: GameSnapshot): void {
+    if (snapshot.runStatus !== "running") return;
+    const hasBoss = snapshot.enemies.some((e) => e.isBoss);
+    const theme: MusicTheme =
+      snapshot.waveState === "spawning" ? (hasBoss ? "boss" : "combat") : "idle";
+    this.music.playTheme(theme);
   }
 
   private handleTowerAudio(previousSnapshot: GameSnapshot, snapshot: GameSnapshot): void {
@@ -739,11 +775,11 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < snapshot.map.towerSlots.length; i += 1) {
       const slot = snapshot.map.towerSlots[i];
       const occupied = occupiedSlots.has(i);
-      this.worldGraphics.fillStyle(occupied ? 0x3e3222 : 0x8a7347, occupied ? 0.36 : 0.58);
+      this.worldGraphics.fillStyle(occupied ? 0x0c1828 : 0x112038, occupied ? 0.38 : 0.62);
       this.worldGraphics.fillRoundedRect(slot.x - 11, slot.y - 9, 22, 18, 5);
-      this.worldGraphics.lineStyle(occupied ? 1.6 : 1.9, occupied ? 0xb29b6b : 0xe8d6a4, occupied ? 0.48 : 0.82);
+      this.worldGraphics.lineStyle(occupied ? 1.6 : 1.9, occupied ? 0x264860 : 0x00e5d4, occupied ? 0.46 : 0.78);
       this.worldGraphics.strokeRoundedRect(slot.x - 11, slot.y - 9, 22, 18, 5);
-      this.worldGraphics.lineStyle(1, 0x2a2117, 0.35);
+      this.worldGraphics.lineStyle(1, 0x050810, 0.35);
       this.worldGraphics.lineBetween(slot.x - 6, slot.y, slot.x + 6, slot.y);
     }
 
@@ -906,6 +942,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.screenLayer.removeAll(true);
+
+    if (
+      this.screenMode === "menu" ||
+      this.screenMode === "difficulty" ||
+      this.screenMode === "connecting" ||
+      this.screenMode === "settings"
+    ) {
+      this.music.playTheme("idle");
+    }
+
     if (this.screenMode === "playing") {
       return;
     }
@@ -925,6 +971,9 @@ export class GameScene extends Phaser.Scene {
         break;
       case "runEnd":
         this.renderRunEndScreen();
+        break;
+      case "settings":
+        this.renderSettingsScreen();
         break;
       default:
         break;
@@ -953,6 +1002,10 @@ export class GameScene extends Phaser.Scene {
 
     this.addScreenButton(800, 488, 340, 56, tr(this.locale, "menu_start_run"), () => {
       this.screenMode = "difficulty";
+      this.renderScreen();
+    });
+    this.addScreenButton(800, 566, 200, 40, tr(this.locale, "settings_button"), () => {
+      this.screenMode = "settings";
       this.renderScreen();
     });
   }
@@ -1007,7 +1060,7 @@ export class GameScene extends Phaser.Scene {
           tr(this.locale, "run_end_essence", { essence }),
         ].join("\n"),
         {
-          color: "#f0e8cf",
+          color: "#a8c8e0",
           fontSize: "25px",
           fontFamily: BODY_FONT,
           align: "center",
@@ -1028,6 +1081,172 @@ export class GameScene extends Phaser.Scene {
       this.screenMode = "menu";
       this.renderScreen();
     });
+  }
+
+  private renderSettingsScreen(): void {
+    this.statusText.setText(tr(this.locale, "settings_title"));
+    this.addScreenTitle(tr(this.locale, "settings_title"));
+
+    // Volume rows
+    this.addSettingsVolumeRow(
+      tr(this.locale, "settings_volume_sfx"),
+      350,
+      this.sfx.getVolumeLevel(),
+      (level) => {
+        this.sfx.setVolumeLevel(level);
+        this.screenMode = "settings";
+        this.renderScreen();
+      },
+    );
+    this.addSettingsVolumeRow(
+      tr(this.locale, "settings_volume_music"),
+      418,
+      this.music.getVolumeLevel(),
+      (level) => {
+        this.music.setVolumeLevel(level);
+        this.screenMode = "settings";
+        this.renderScreen();
+      },
+    );
+
+    // Language row
+    this.addSettingsSectionLabel(tr(this.locale, "settings_language"), 494);
+    this.addSettingsLanguageRow(540);
+
+    // Keybinds
+    this.addSettingsSectionLabel(tr(this.locale, "settings_keybinds_title"), 594);
+    const keybinds = [
+      tr(this.locale, "settings_keybind_move"),
+      tr(this.locale, "settings_keybind_skill_q"),
+      tr(this.locale, "settings_keybind_skill_e"),
+      tr(this.locale, "settings_keybind_towers"),
+      tr(this.locale, "settings_keybind_move_tower"),
+      tr(this.locale, "settings_keybind_wave"),
+      tr(this.locale, "settings_keybind_revive"),
+      tr(this.locale, "settings_keybind_reroll"),
+      tr(this.locale, "settings_keybind_place"),
+    ];
+    const keybindText = this.add
+      .text(800, 638, keybinds.join("\n"), {
+        color: "#6878a0",
+        fontSize: "14px",
+        fontFamily: BODY_FONT,
+        align: "center",
+        lineSpacing: 4,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(301);
+    this.screenLayer.add(keybindText);
+
+    this.addScreenButton(800, 840, 200, 40, tr(this.locale, "back"), () => {
+      this.screenMode = "menu";
+      this.renderScreen();
+    });
+  }
+
+  private addSettingsSectionLabel(text: string, y: number): void {
+    const label = this.add
+      .text(800, y, text, {
+        color: "#00e5d4",
+        fontSize: "16px",
+        fontFamily: TITLE_FONT,
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(301);
+    this.screenLayer.add(label);
+  }
+
+  private addSettingsVolumeRow(
+    label: string,
+    y: number,
+    currentLevel: number,
+    onChange: (newLevel: number) => void,
+  ): void {
+    const labelText = this.add
+      .text(480, y, label, {
+        color: "#8090a8",
+        fontSize: "18px",
+        fontFamily: BODY_FONT,
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(301);
+    this.screenLayer.add(labelText);
+
+    const dots = "●".repeat(currentLevel) + "○".repeat(4 - currentLevel);
+    const dotsText = this.add
+      .text(800, y, dots, {
+        color: "#00e5d4",
+        fontSize: "22px",
+        fontFamily: BODY_FONT,
+      })
+      .setOrigin(0.5)
+      .setDepth(301);
+    this.screenLayer.add(dotsText);
+
+    const minusBtn = this.addSmallButton(700, y, "−", () => {
+      onChange(Math.max(0, currentLevel - 1));
+    });
+    const plusBtn = this.addSmallButton(900, y, "+", () => {
+      onChange(Math.min(4, currentLevel + 1));
+    });
+    this.screenLayer.add(minusBtn);
+    this.screenLayer.add(plusBtn);
+  }
+
+  private addSettingsLanguageRow(y: number): void {
+    const ptActive = this.locale === "pt";
+    const ptColor = ptActive ? "#00e5d4" : "#485270";
+    const enColor = ptActive ? "#485270" : "#00e5d4";
+
+    const ptBtn = this.addSmallButton(740, y, "PT", () => {
+      if (this.locale !== "pt") this.handleToggleLocale();
+    });
+    const enBtn = this.addSmallButton(860, y, "EN", () => {
+      if (this.locale !== "en") this.handleToggleLocale();
+    });
+
+    // Tint active language label (index 1 = text, index 0 = rect)
+    const ptLabel = ptBtn.getAt(1) as Phaser.GameObjects.Text | undefined;
+    const enLabel = enBtn.getAt(1) as Phaser.GameObjects.Text | undefined;
+    ptLabel?.setColor(ptColor);
+    enLabel?.setColor(enColor);
+
+    this.screenLayer.add(ptBtn);
+    this.screenLayer.add(enBtn);
+  }
+
+  private addSmallButton(
+    x: number,
+    y: number,
+    label: string,
+    onClick: () => void,
+  ): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0).setDepth(301);
+    const rect = this.add
+      .rectangle(x, y, 60, 34, 0x0c1828, 0.96)
+      .setStrokeStyle(1, 0x009e98, 0.7)
+      .setDepth(301);
+    const text = this.add
+      .text(x, y, label, {
+        color: "#8090a8",
+        fontSize: "18px",
+        fontFamily: TITLE_FONT,
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(302);
+
+    rect.setInteractive({ useHandCursor: true });
+    rect.on("pointerover", () => rect.setFillStyle(0x162840, 1));
+    rect.on("pointerout", () => rect.setFillStyle(0x0c1828, 0.96));
+    rect.on("pointerdown", () => {
+      this.sfx.playUiClick();
+      onClick();
+    });
+
+    container.add([rect, text]);
+    return container;
   }
 
   private startRunWithDifficulty(difficulty: DifficultyPreset): void {
@@ -1056,17 +1275,17 @@ export class GameScene extends Phaser.Scene {
     height: number,
   ): Phaser.GameObjects.Container {
     const panel = this.add.container(0, 0).setDepth(300);
-    const backdrop = this.add.rectangle(800, 450, 1600, 900, 0x090c0e, 0.68).setDepth(300);
+    const backdrop = this.add.rectangle(800, 450, 1600, 900, 0x050810, 0.78).setDepth(300);
     const body = this.add
-      .rectangle(x, y, width, height, 0x1a2526, 0.92)
-      .setStrokeStyle(2, 0xbfa369, 0.85)
+      .rectangle(x, y, width, height, 0x0c1828, 0.95)
+      .setStrokeStyle(2, 0x00e5d4, 0.56)
       .setDepth(301);
     const inner = this.add
-      .rectangle(x, y, width - 26, height - 26, 0x101a1c, 0.55)
-      .setStrokeStyle(1, 0xdbc48b, 0.4)
+      .rectangle(x, y, width - 26, height - 26, 0x081020, 0.55)
+      .setStrokeStyle(1, 0x009e98, 0.28)
       .setDepth(301);
     const accent = this.add
-      .rectangle(x, y - height / 2 + 58, width - 60, 2, 0xe3d5ad, 0.32)
+      .rectangle(x, y - height / 2 + 58, width - 60, 2, 0x00e5d4, 0.24)
       .setDepth(301);
     panel.add([backdrop, body, inner, accent]);
     return panel;
@@ -1075,7 +1294,7 @@ export class GameScene extends Phaser.Scene {
   private addScreenTitle(text: string): void {
     const title = this.add
       .text(800, 206, text, {
-        color: "#f4e7c2",
+        color: "#b0f0ec",
         fontSize: "56px",
         fontFamily: TITLE_FONT,
         fontStyle: "bold",
@@ -1088,7 +1307,7 @@ export class GameScene extends Phaser.Scene {
   private addScreenSubtitle(text: string): void {
     const subtitle = this.add
       .text(800, 281, text, {
-        color: "#d9c793",
+        color: "#8090a8",
         fontSize: "24px",
         fontFamily: BODY_FONT,
       })
@@ -1100,7 +1319,7 @@ export class GameScene extends Phaser.Scene {
   private addScreenLore(text: string, y: number): void {
     const lore = this.add
       .text(800, y, text, {
-        color: "#b8c3be",
+        color: "#6878a0",
         fontSize: "19px",
         fontFamily: BODY_FONT,
         align: "center",
@@ -1121,7 +1340,7 @@ export class GameScene extends Phaser.Scene {
     this.addScreenButton(x, y - 12, 520, 80, label, onClick);
     const desc = this.add
       .text(x, y + 16, description, {
-        color: "#afbfba",
+        color: "#6878a0",
         fontSize: "14px",
         fontFamily: BODY_FONT,
       })
@@ -1140,15 +1359,15 @@ export class GameScene extends Phaser.Scene {
   ): Phaser.GameObjects.Container {
     const container = this.add.container(0, 0).setDepth(301);
     const rect = this.add
-      .rectangle(x, y, width, height, 0x253134, 0.95)
-      .setStrokeStyle(2, 0xcdb685, 0.95)
+      .rectangle(x, y, width, height, 0x0c1828, 0.96)
+      .setStrokeStyle(2, 0x00e5d4, 0.72)
       .setDepth(301);
     const sheen = this.add
-      .rectangle(x, y - height * 0.18, width - 14, height * 0.34, 0xf4e4b6, 0.1)
+      .rectangle(x, y - height * 0.18, width - 14, height * 0.34, 0x00e5d4, 0.06)
       .setDepth(302);
     const text = this.add
       .text(x, y, label, {
-        color: "#f6edda",
+        color: "#b0f0ec",
         fontSize: "24px",
         fontFamily: TITLE_FONT,
         fontStyle: "bold",
@@ -1158,11 +1377,11 @@ export class GameScene extends Phaser.Scene {
 
     rect.setInteractive({ useHandCursor: true });
     rect.on("pointerover", () => {
-      rect.setFillStyle(0x334347, 1);
+      rect.setFillStyle(0x162840, 1);
       this.tweens.add({ targets: [rect, sheen], scaleX: 1.02, scaleY: 1.06, duration: 120 });
     });
     rect.on("pointerout", () => {
-      rect.setFillStyle(0x253134, 0.95);
+      rect.setFillStyle(0x0c1828, 0.96);
       this.tweens.add({ targets: [rect, sheen], scaleX: 1, scaleY: 1, duration: 120 });
     });
     rect.on("pointerdown", () => {
@@ -1180,6 +1399,7 @@ export class GameScene extends Phaser.Scene {
     saveLocale(this.locale);
     this.localeButton.setText(tr(this.locale, "language_button"));
     this.updateSfxButtonLabel();
+    this.updateMusicButtonLabel();
 
     if (this.screenMode !== "playing") {
       this.renderScreen();
@@ -1219,6 +1439,19 @@ export class GameScene extends Phaser.Scene {
 
   private updateSfxButtonLabel(): void {
     this.sfxButton.setText(tr(this.locale, this.sfx.isEnabled() ? "audio_on" : "audio_off"));
+  }
+
+  private handleToggleMusic(): void {
+    const wasEnabled = this.music.isEnabled();
+    this.music.setEnabled(!wasEnabled);
+    if (!wasEnabled) {
+      this.music.prime();
+    }
+    this.updateMusicButtonLabel();
+  }
+
+  private updateMusicButtonLabel(): void {
+    this.musicButton.setText(tr(this.locale, this.music.isEnabled() ? "music_on" : "music_off"));
   }
 
   private getDifficultyLabel(difficulty: DifficultyPreset): string {
@@ -1367,16 +1600,16 @@ export class GameScene extends Phaser.Scene {
   private createWaveActionUi(): void {
     this.waveActionContainer = this.add.container(0, 0).setDepth(190).setVisible(false);
     this.waveActionButton = this.add
-      .rectangle(1388, 815, 385, 78, 0x243739, 0.94)
-      .setStrokeStyle(2, 0xc4b37f, 0.9)
+      .rectangle(1388, 815, 385, 78, 0x0c1828, 0.96)
+      .setStrokeStyle(2, 0x00e5d4, 0.7)
       .setDepth(191)
       .setInteractive({ useHandCursor: true });
     const sheen = this.add
-      .rectangle(1388, 796, 358, 20, 0xf6e5b8, 0.12)
+      .rectangle(1388, 796, 358, 20, 0x00e5d4, 0.06)
       .setDepth(192);
     this.waveActionLabel = this.add
       .text(1388, 810, tr(this.locale, "wave_call_button"), {
-        color: "#f3ebd6",
+        color: "#a8c8e0",
         fontSize: "20px",
         fontFamily: TITLE_FONT,
       })
@@ -1384,7 +1617,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(193);
     this.waveActionInfo = this.add
       .text(1388, 853, "", {
-        color: "#dbcfae",
+        color: "#6878a0",
         fontSize: "14px",
         fontFamily: BODY_FONT,
       })
@@ -1392,12 +1625,12 @@ export class GameScene extends Phaser.Scene {
       .setDepth(193);
 
     this.waveActionButton.on("pointerover", () => {
-      this.waveActionButton.setFillStyle(0x334d4f, 1);
+      this.waveActionButton.setFillStyle(0x162840, 1);
       this.waveActionButton.setScale(1.02, 1.04);
       sheen.setScale(1.02, 1.04);
     });
     this.waveActionButton.on("pointerout", () => {
-      this.waveActionButton.setFillStyle(0x243739, 0.94);
+      this.waveActionButton.setFillStyle(0x0c1828, 0.96);
       this.waveActionButton.setScale(1, 1);
       sheen.setScale(1, 1);
     });
@@ -1441,23 +1674,23 @@ export class GameScene extends Phaser.Scene {
   private createContextPanelUi(): void {
     this.contextPanelContainer = this.add.container(0, 0).setDepth(197).setVisible(false);
     const panel = this.add
-      .rectangle(1388, 455, 385, 333, 0x111d1f, 0.88)
-      .setStrokeStyle(2, 0xbfa76d, 0.82)
+      .rectangle(1388, 455, 385, 333, 0x080e1c, 0.92)
+      .setStrokeStyle(2, 0x009e98, 0.55)
       .setDepth(197);
     const header = this.add
-      .rectangle(1388, 314, 358, 38, 0x2a3b3f, 0.74)
-      .setStrokeStyle(1, 0xd1bd8a, 0.45)
+      .rectangle(1388, 314, 358, 38, 0x0c1828, 0.78)
+      .setStrokeStyle(1, 0x009e98, 0.32)
       .setDepth(198);
     this.contextPanelTitle = this.add
       .text(1208, 298, "", {
-        color: "#f4e8c6",
+        color: "#a8c8e0",
         fontSize: "18px",
         fontFamily: TITLE_FONT,
       })
       .setDepth(199);
     this.contextPanelBody = this.add
       .text(1203, 340, "", {
-        color: "#d8d7c5",
+        color: "#6878a0",
         fontSize: "14px",
         fontFamily: BODY_FONT,
         lineSpacing: 3,
@@ -1471,23 +1704,23 @@ export class GameScene extends Phaser.Scene {
   private createOnboardingUi(): void {
     this.onboardingContainer = this.add.container(0, 0).setDepth(196).setVisible(false);
     const panel = this.add
-      .rectangle(440, 775, 835, 115, 0x121e20, 0.86)
-      .setStrokeStyle(2, 0xb8a06b, 0.78)
+      .rectangle(440, 775, 835, 115, 0x080e1c, 0.92)
+      .setStrokeStyle(2, 0x009e98, 0.48)
       .setDepth(196);
     const header = this.add
-      .rectangle(440, 731, 798, 30, 0x2a3b3f, 0.72)
-      .setStrokeStyle(1, 0xd1bd8a, 0.42)
+      .rectangle(440, 731, 798, 30, 0x0c1828, 0.78)
+      .setStrokeStyle(1, 0x009e98, 0.28)
       .setDepth(197);
     this.onboardingTitle = this.add
       .text(55, 719, "", {
-        color: "#f3e8c8",
+        color: "#a8c8e0",
         fontSize: "16px",
         fontFamily: TITLE_FONT,
       })
       .setDepth(198);
     this.onboardingBody = this.add
       .text(53, 748, "", {
-        color: "#d6d5c1",
+        color: "#6878a0",
         fontSize: "13px",
         fontFamily: BODY_FONT,
         lineSpacing: 2,
@@ -2106,7 +2339,7 @@ export class GameScene extends Phaser.Scene {
       sprite.setAlpha(hero.state === "dead" ? 0.86 : 1);
 
       if (hero.id === this.playerId && hero.state === "alive") {
-        sprite.setTint(0xffefbe);
+        sprite.setTint(0x80f8f0);
       } else {
         sprite.clearTint();
       }
@@ -2131,36 +2364,36 @@ export class GameScene extends Phaser.Scene {
         enemy.isBoss ? 12 : 8,
       );
 
-      this.overlayGraphics.lineStyle(1.8, 0x0f1411, 0.85);
+      this.overlayGraphics.lineStyle(1.8, 0x050810, 0.9);
       this.overlayGraphics.strokeCircle(enemy.x, enemy.y - 1, enemy.isBoss ? 16.5 : 10.5);
 
       if (enemy.typeId === "elite" && enemy.eliteEmpoweredRemainingMs > 0) {
         const pulse = 1 + Math.sin(this.time.now / 95) * 1.3;
-        this.overlayGraphics.lineStyle(2.5, 0xff9f4e, 0.95);
+        this.overlayGraphics.lineStyle(2.5, 0xa060f0, 0.95);
         this.overlayGraphics.strokeCircle(enemy.x, enemy.y, 14 + pulse * 1.2);
       }
 
       if (enemy.isBoss) {
         const phaseColor =
-          enemy.bossPhase >= 3 ? 0xff4e7c : enemy.bossPhase >= 2 ? 0xffa55a : 0xd78294;
+          enemy.bossPhase >= 3 ? 0xe04050 : enemy.bossPhase >= 2 ? 0xb840a0 : 0x6c38c0;
         this.overlayGraphics.lineStyle(2.5, phaseColor, 0.9);
         this.overlayGraphics.strokeCircle(enemy.x, enemy.y - 1, 20 + enemy.bossPhase * 2);
       }
 
       if (enemy.poisonRemainingMs > 0 && enemy.poisonStacks > 0) {
-        this.overlayGraphics.lineStyle(2, 0x7ad866, 0.85);
+        this.overlayGraphics.lineStyle(2, 0x50d068, 0.85);
         this.overlayGraphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 18 : 12);
       }
 
       if (enemy.shockedRemainingMs > 0) {
-        this.overlayGraphics.lineStyle(2, 0x86ecff, 0.85);
+        this.overlayGraphics.lineStyle(2, 0x50f5e8, 0.85);
         this.overlayGraphics.strokeCircle(enemy.x, enemy.y, enemy.isBoss ? 21 : 15);
       }
 
       const hpRatio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
-      this.overlayGraphics.fillStyle(0x1f0f11, 0.95);
+      this.overlayGraphics.fillStyle(0x050810, 0.92);
       this.overlayGraphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26, 5, 2);
-      this.overlayGraphics.fillStyle(0x9cca74, 1);
+      this.overlayGraphics.fillStyle(0x00e5d4, 1);
       this.overlayGraphics.fillRoundedRect(enemy.x - 13, enemy.y - 23, 26 * hpRatio, 5, 2);
     }
   }
@@ -2169,7 +2402,7 @@ export class GameScene extends Phaser.Scene {
     for (const tower of towers) {
       const isLocalTower = tower.ownerId === this.playerId;
       const accent =
-        tower.typeId === "defender" ? 0x8bc4ff : tower.typeId === "archer" ? 0xd8ed8f : 0xc7a8ff;
+        tower.typeId === "defender" ? 0x00e5d4 : tower.typeId === "archer" ? 0xf09840 : 0xa060f0;
 
       this.worldGraphics.fillStyle(0x060807, 0.3);
       this.worldGraphics.fillEllipse(tower.x, tower.y + 10, 24, 9);
@@ -2178,7 +2411,7 @@ export class GameScene extends Phaser.Scene {
       this.overlayGraphics.strokeCircle(tower.x, tower.y - 2, isLocalTower ? 13 : 12);
 
       if (isLocalTower) {
-        this.overlayGraphics.lineStyle(1.2, 0xf7f2da, 0.6);
+        this.overlayGraphics.lineStyle(1.2, 0xd4e4f0, 0.5);
         this.overlayGraphics.strokeCircle(tower.x, tower.y - 2, 9.8);
       }
 
@@ -2200,20 +2433,20 @@ export class GameScene extends Phaser.Scene {
 
       this.overlayGraphics.lineStyle(
         2,
-        isLocalHero ? 0xfaf3cc : 0xd7d7d7,
-        hero.state === "alive" ? 0.95 : 0.6,
+        isLocalHero ? 0x00e5d4 : 0x8090a8,
+        hero.state === "alive" ? 0.95 : 0.55,
       );
       this.overlayGraphics.strokeCircle(hero.x, hero.y, 11);
 
       if (hero.state === "downed") {
         const reviveRequiredMs = Math.max(1, this.snapshot?.reviveRequiredMs ?? 2800);
         const reviveRatio = hero.reviveProgressMs > 0 ? hero.reviveProgressMs / reviveRequiredMs : 0;
-        this.overlayGraphics.lineStyle(2, 0x90f5a3, 0.9);
+        this.overlayGraphics.lineStyle(2, 0xf09840, 0.9);
         this.overlayGraphics.strokeCircle(hero.x, hero.y, 14 + reviveRatio * 3);
       }
 
       if (hero.state === "dead") {
-        this.overlayGraphics.lineStyle(2, 0x2e2727, 1);
+        this.overlayGraphics.lineStyle(2, 0xc02838, 1);
         this.overlayGraphics.lineBetween(hero.x - 7, hero.y - 7, hero.x + 7, hero.y + 7);
         this.overlayGraphics.lineBetween(hero.x + 7, hero.y - 7, hero.x - 7, hero.y + 7);
       }
@@ -2225,9 +2458,9 @@ export class GameScene extends Phaser.Scene {
         }
 
         const pulse = 0.5 + Math.sin(this.time.now / 95) * 0.5;
-        this.overlayGraphics.lineStyle(2.4, 0x93ffce, 0.9);
+        this.overlayGraphics.lineStyle(2.4, 0x00e5d4, 0.9);
         this.overlayGraphics.lineBetween(hero.x, hero.y - 1, target.x, target.y - 1);
-        this.overlayGraphics.lineStyle(1.4, 0xe5fff5, 0.75);
+        this.overlayGraphics.lineStyle(1.4, 0x50f5e8, 0.75);
         this.overlayGraphics.strokeCircle(hero.x, hero.y - 2, 12 + pulse * 1.5);
         this.overlayGraphics.strokeCircle(target.x, target.y - 2, 13 + pulse * 2.1);
       }
@@ -2249,8 +2482,8 @@ export class GameScene extends Phaser.Scene {
         const isHovered = i === hoveredSlotIndex;
         this.overlayGraphics.lineStyle(
           isHovered ? 2.5 : 1.6,
-          isHovered ? 0xf7efcb : 0x77c8be,
-          isHovered ? 0.95 : 0.55,
+          isHovered ? 0x50f5e8 : 0x009e98,
+          isHovered ? 0.95 : 0.52,
         );
         this.overlayGraphics.strokeCircle(slot.x, slot.y, isHovered ? 19 : 17);
       }
@@ -2261,9 +2494,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     const pulse = 0.5 + Math.sin(this.time.now / 125) * 0.5;
-    this.overlayGraphics.lineStyle(3, 0x8af7ff, 0.95);
+    this.overlayGraphics.lineStyle(3, 0x00e5d4, 0.95);
     this.overlayGraphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 17 + pulse * 2.2);
-    this.overlayGraphics.lineStyle(1.4, 0xe5fdfd, 0.75);
+    this.overlayGraphics.lineStyle(1.4, 0x50f5e8, 0.7);
     this.overlayGraphics.strokeCircle(selectedTower.x, selectedTower.y - 2, 11 + pulse * 1.6);
 
     if (hoveredSlotIndex < 0 || occupiedSlots.has(hoveredSlotIndex)) {
@@ -2271,7 +2504,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const targetSlot = snapshot.map.towerSlots[hoveredSlotIndex];
-    this.overlayGraphics.lineStyle(2, 0xe9f4d0, 0.75);
+    this.overlayGraphics.lineStyle(2, 0x00e5d4, 0.72);
     this.overlayGraphics.lineBetween(selectedTower.x, selectedTower.y - 1, targetSlot.x, targetSlot.y);
   }
 
@@ -2280,31 +2513,31 @@ export class GameScene extends Phaser.Scene {
     const y = tower.y - 3;
 
     if (tower.typeId === "defender") {
-      this.overlayGraphics.fillStyle(0x36577f, 0.9);
+      this.overlayGraphics.fillStyle(0x009e98, 0.88);
       this.overlayGraphics.fillRoundedRect(x - 4, y - 5, 8, 11, 2);
-      this.overlayGraphics.lineStyle(1, 0xe6f4ff, 0.8);
+      this.overlayGraphics.lineStyle(1, 0x50f5e8, 0.82);
       this.overlayGraphics.strokeRoundedRect(x - 4, y - 5, 8, 11, 2);
-      this.overlayGraphics.lineStyle(1.1, 0xbadfff, 0.82);
+      this.overlayGraphics.lineStyle(1.1, 0x00e5d4, 0.85);
       this.overlayGraphics.lineBetween(x, y - 4, x, y + 4);
       return;
     }
 
     if (tower.typeId === "archer") {
-      this.overlayGraphics.lineStyle(1.1, 0xe8f2c6, 0.9);
+      this.overlayGraphics.lineStyle(1.1, 0xf09840, 0.9);
       this.overlayGraphics.strokeCircle(x - 1, y, 4);
-      this.overlayGraphics.lineStyle(1.3, 0xc7df9f, 0.95);
+      this.overlayGraphics.lineStyle(1.3, 0xffb840, 0.95);
       this.overlayGraphics.lineBetween(x + 1, y - 5, x + 4, y + 3);
-      this.overlayGraphics.fillStyle(0xf5e8bd, 0.9);
+      this.overlayGraphics.fillStyle(0xe07030, 0.9);
       this.overlayGraphics.fillTriangle(x + 4, y + 3, x + 1, y + 1, x + 6, y);
       return;
     }
 
-    this.overlayGraphics.fillStyle(0x9f88f7, 0.92);
+    this.overlayGraphics.fillStyle(0xa060f0, 0.92);
     this.overlayGraphics.fillCircle(x, y, 3);
-    this.overlayGraphics.lineStyle(1.1, 0xf0eaff, 0.8);
+    this.overlayGraphics.lineStyle(1.1, 0xd4e4f0, 0.8);
     this.overlayGraphics.lineBetween(x - 5, y, x + 5, y);
     this.overlayGraphics.lineBetween(x, y - 5, x, y + 5);
-    this.overlayGraphics.lineStyle(0.8, 0xd8cbff, 0.7);
+    this.overlayGraphics.lineStyle(0.8, 0xa060f0, 0.7);
     this.overlayGraphics.lineBetween(x - 3, y - 3, x + 3, y + 3);
     this.overlayGraphics.lineBetween(x + 3, y - 3, x - 3, y + 3);
   }
@@ -2406,12 +2639,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawPixelVignette(width: number, height: number): void {
-    this.overlayGraphics.fillStyle(0x050705, 0.06);
+    this.overlayGraphics.fillStyle(0x050810, 0.05);
     for (let y = 0; y < height; y += TERRAIN_TILE_SIZE * 2) {
       this.overlayGraphics.fillRect(0, y, width, 1);
     }
 
-    this.overlayGraphics.fillStyle(0x070907, 0.1);
+    this.overlayGraphics.fillStyle(0x050810, 0.12);
     this.overlayGraphics.fillRect(0, 0, width, 16);
     this.overlayGraphics.fillRect(0, height - 16, width, 16);
   }
@@ -2458,7 +2691,7 @@ export class GameScene extends Phaser.Scene {
 
   private drawAmbientMotes(): void {
     for (const mote of this.ambientMotes) {
-      this.worldGraphics.fillStyle(0xe6e8cf, mote.alpha);
+      this.worldGraphics.fillStyle(0x009e98, mote.alpha);
       this.worldGraphics.fillCircle(mote.x, mote.y, mote.size);
     }
   }
@@ -2470,34 +2703,34 @@ export class GameScene extends Phaser.Scene {
     const bob = Math.sin(this.time.now / 260) * 1.4;
     const spin = this.time.now / 780;
 
-    this.worldGraphics.fillStyle(0x21443a, 0.68);
+    this.worldGraphics.fillStyle(0x0c1828, 0.72);
     this.worldGraphics.fillEllipse(x, y + 9, 58, 24);
-    this.worldGraphics.fillStyle(0x3e705f, 0.9);
+    this.worldGraphics.fillStyle(0x1a2848, 0.92);
     this.worldGraphics.fillCircle(x, y + 1, 22);
-    this.worldGraphics.lineStyle(2, 0x8bc4b3, 0.56);
+    this.worldGraphics.lineStyle(2, 0x009e98, 0.56);
     this.worldGraphics.strokeCircle(x, y + 1, 22);
 
-    this.overlayGraphics.lineStyle(3, 0xbff6e6, 0.62);
+    this.overlayGraphics.lineStyle(3, 0x50f5e8, 0.58);
     this.overlayGraphics.strokeCircle(x, y - 2, 29 + pulse * 2.4);
-    this.overlayGraphics.lineStyle(2, 0x87dfc5, 0.78);
+    this.overlayGraphics.lineStyle(2, 0x00e5d4, 0.82);
     this.overlayGraphics.strokeCircle(x, y - 2, 17 + pulse * 1.2);
 
     for (let i = 0; i < 4; i += 1) {
       const angle = spin + (Math.PI / 2) * i;
       const lx = x + Math.cos(angle) * 12;
       const ly = y - 2 + Math.sin(angle) * 8;
-      this.overlayGraphics.fillStyle(0xc7ffea, 0.75);
+      this.overlayGraphics.fillStyle(0x50f5e8, 0.78);
       this.overlayGraphics.fillCircle(lx, ly, 1.8);
     }
 
-    this.overlayGraphics.fillStyle(0x5dcdb2, 0.96);
+    this.overlayGraphics.fillStyle(0x009e98, 0.96);
     this.overlayGraphics.fillCircle(x, y - 3 + bob, 8);
-    this.overlayGraphics.fillStyle(0xecfff8, 0.96);
+    this.overlayGraphics.fillStyle(0xd4e4f0, 0.96);
     this.overlayGraphics.fillCircle(x, y - 5 + bob, 3);
 
-    this.overlayGraphics.lineStyle(4, 0x1d2a22, 0.9);
+    this.overlayGraphics.lineStyle(4, 0x050810, 0.92);
     this.overlayGraphics.strokeCircle(x, y - 2, 34);
-    const hpColor = hpRatio > 0.55 ? 0x8fe46f : hpRatio > 0.25 ? 0xecc164 : 0xe06f64;
+    const hpColor = hpRatio > 0.55 ? 0x00e5d4 : hpRatio > 0.25 ? 0xf09840 : 0xe04050;
     this.overlayGraphics.lineStyle(3, hpColor, 0.95);
     this.overlayGraphics.beginPath();
     this.overlayGraphics.arc(

@@ -18,7 +18,7 @@ new Phaser.Game({
   parent: "game-root",
   width: 1600,
   height: 900,
-  backgroundColor: "#0d1212",
+  backgroundColor: "#050810",
   pixelArt: true,
   antialias: false,
   scale: {
