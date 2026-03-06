@@ -237,6 +237,61 @@ export const MAPS: MapConfig[] = [
       { x: 1225, y: 625 },
     ],
   },
+  {
+    id: "fracture-crossroads",
+    name: "Fracture Crossroads",
+    width: 1600,
+    height: 900,
+    heroSpawn: { x: 580, y: 450 },
+    basePosition: { x: 1413, y: 450 },
+    paths: [
+      // North route: enters top, snakes across upper half
+      [
+        { x: 50, y: 100 },
+        { x: 320, y: 100 },
+        { x: 320, y: 280 },
+        { x: 720, y: 280 },
+        { x: 720, y: 150 },
+        { x: 1080, y: 150 },
+        { x: 1080, y: 420 },
+        { x: 1413, y: 420 },
+      ],
+      // Middle route: enters center, weaves up then down
+      [
+        { x: 50, y: 450 },
+        { x: 240, y: 450 },
+        { x: 240, y: 580 },
+        { x: 580, y: 580 },
+        { x: 580, y: 400 },
+        { x: 880, y: 400 },
+        { x: 880, y: 450 },
+        { x: 1413, y: 450 },
+      ],
+      // South route: enters bottom, snakes across lower half
+      [
+        { x: 50, y: 800 },
+        { x: 320, y: 800 },
+        { x: 320, y: 620 },
+        { x: 720, y: 620 },
+        { x: 720, y: 750 },
+        { x: 1080, y: 750 },
+        { x: 1080, y: 480 },
+        { x: 1413, y: 480 },
+      ],
+    ],
+    towerSlots: [
+      { x: 195, y: 190 },  // covers north entry and mid-west
+      { x: 195, y: 710 },  // covers south entry
+      { x: 450, y: 190 },  // north path early coverage
+      { x: 450, y: 710 },  // south path early coverage
+      { x: 640, y: 340 },  // chokepoint between north and middle paths
+      { x: 640, y: 510 },  // chokepoint between middle and south paths
+      { x: 900, y: 280 },  // late north coverage
+      { x: 900, y: 620 },  // late south coverage
+      { x: 1200, y: 330 }, // base defence top
+      { x: 1200, y: 580 }, // base defence bottom
+    ],
+  },
 ];
 
 export const DEFAULT_MAP = MAPS[0];

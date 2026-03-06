@@ -1,4 +1,6 @@
 const AUDIO_STORAGE_KEY = "pals_defence_sfx_enabled";
+const SFX_VOLUME_KEY = "pals_defence_sfx_volume";
+const SFX_GAIN_LEVELS = [0, 0.07, 0.13, 0.18, 0.26] as const;
 
 interface ToneStep {
   frequency: number;
@@ -12,10 +14,12 @@ export class SfxEngine {
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private enabled: boolean;
+  private volumeLevel: number;
   private lastPlayById = new Map<string, number>();
 
   constructor() {
     this.enabled = this.loadEnabledState();
+    this.volumeLevel = this.loadVolumeLevel();
   }
 
   isEnabled(): boolean {
@@ -29,6 +33,18 @@ export class SfxEngine {
       this.prime();
     }
     return this.enabled;
+  }
+
+  getVolumeLevel(): number {
+    return this.volumeLevel;
+  }
+
+  setVolumeLevel(level: number): void {
+    this.volumeLevel = Math.max(0, Math.min(4, level));
+    this.saveVolumeLevel(this.volumeLevel);
+    if (this.masterGain) {
+      this.masterGain.gain.value = SFX_GAIN_LEVELS[this.volumeLevel];
+    }
   }
 
   prime(): void {
@@ -262,7 +278,7 @@ export class SfxEngine {
 
     this.context = new audioContextCtor();
     this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = 0.18;
+    this.masterGain.gain.value = SFX_GAIN_LEVELS[this.volumeLevel];
     this.masterGain.connect(this.context.destination);
     return this.context;
   }
@@ -281,6 +297,24 @@ export class SfxEngine {
       localStorage.setItem(AUDIO_STORAGE_KEY, enabled ? "1" : "0");
     } catch {
       // ignore storage failures
+    }
+  }
+
+  private loadVolumeLevel(): number {
+    try {
+      const raw = localStorage.getItem(SFX_VOLUME_KEY);
+      const parsed = raw !== null ? parseInt(raw, 10) : 3;
+      return isNaN(parsed) ? 3 : Math.max(0, Math.min(4, parsed));
+    } catch {
+      return 3;
+    }
+  }
+
+  private saveVolumeLevel(level: number): void {
+    try {
+      localStorage.setItem(SFX_VOLUME_KEY, String(level));
+    } catch {
+      // ignore
     }
   }
 }

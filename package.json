@@ -6,9 +6,13 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "npm --workspace @pals-defence/server run dev",
     "dev:frontend": "npm --workspace @pals-defence/client run dev",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

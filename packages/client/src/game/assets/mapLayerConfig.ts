@@ -36,6 +36,8 @@ export interface MapLayerConfig {
   decorRules: MapLayerDecorRule[];
 }
 
+export const MAP_LAYER_CONFIGS: Record<string, MapLayerConfig> = {};
+
 export const DEFAULT_MAP_LAYER_CONFIG: MapLayerConfig = {
   version: 4,
   mapId: "wardens-field",
@@ -177,3 +179,95 @@ export const DEFAULT_MAP_LAYER_CONFIG: MapLayerConfig = {
     },
   ],
 };
+
+// Visual config for Fracture Crossroads — rockier, more crystals/ruins, fewer flowers
+export const FRACTURE_CROSSROADS_MAP_LAYER_CONFIG: MapLayerConfig = {
+  version: 5,
+  mapId: "fracture-crossroads",
+  tileSize: 16,
+  minBaseClearRadiusTiles: 2.8,
+  ground: {
+    lowTile: "tile_grass_a",
+    midTile: "tile_grass_b",
+    highTile: "tile_grass_c",
+    lowMaxNoise: 0.28,
+    midMaxNoise: 0.60,
+  },
+  path: {
+    tileA: "tile_path_a",
+    tileB: "tile_path_b",
+    mixThreshold: 0.52,
+    radiusTiles: 1,
+    sampleStepPx: 5,
+    noiseOffsetX: 43,
+    noiseOffsetY: 17,
+  },
+  decorRules: [
+    {
+      texture: "prop_tree_dead",
+      minNoise: 0.978,
+      maxNoise: 1,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 61,
+      noiseOffsetY: 23,
+    },
+    {
+      texture: "prop_crystal",
+      minNoise: 0.83,
+      maxNoise: 0.852,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 71,
+      noiseOffsetY: 31,
+    },
+    {
+      texture: "prop_ruin",
+      minNoise: 0.858,
+      maxNoise: 0.872,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 53,
+      noiseOffsetY: 7,
+    },
+    {
+      texture: "prop_stone",
+      minNoise: 0,
+      maxNoise: 0.028,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 37,
+      noiseOffsetY: 19,
+    },
+    {
+      texture: "prop_barrel",
+      minNoise: 0.91,
+      maxNoise: 0.924,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 29,
+      noiseOffsetY: 43,
+    },
+    {
+      texture: "prop_mushroom",
+      minNoise: 0.62,
+      maxNoise: 0.632,
+      noiseScaleX: 6,
+      noiseScaleY: 5,
+      noiseOffsetX: 11,
+      noiseOffsetY: 41,
+    },
+    {
+      texture: "prop_fence",
+      minNoise: 0.935,
+      maxNoise: 0.946,
+      noiseScaleX: 5,
+      noiseScaleY: 7,
+      noiseOffsetX: 67,
+      noiseOffsetY: 13,
+    },
+  ],
+};
+
+MAP_LAYER_CONFIGS["wardens-field"] = DEFAULT_MAP_LAYER_CONFIG;
+MAP_LAYER_CONFIGS["fracture-crossroads"] = FRACTURE_CROSSROADS_MAP_LAYER_CONFIG;

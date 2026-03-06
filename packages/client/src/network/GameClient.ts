@@ -22,6 +22,7 @@ const STORAGE_PLAYER_ID_KEY = "pals_defence_player_id";
 
 interface ConnectOptions {
   difficulty: DifficultyPreset;
+  mapId: string;
 }
 
 export class GameClient {
@@ -55,7 +56,7 @@ export class GameClient {
     }
 
     this.isManualClose = false;
-    const wsUrl = this.buildWsUrl(options.difficulty);
+    const wsUrl = this.buildWsUrl(options);
     this.socket = new WebSocket(wsUrl);
 
     this.socket.addEventListener("open", () => {
@@ -194,11 +195,12 @@ export class GameClient {
     this.socket.send(JSON.stringify(message));
   }
 
-  private buildWsUrl(difficulty: DifficultyPreset): string {
+  private buildWsUrl(options: ConnectOptions): string {
     const rawBaseUrl = import.meta.env.VITE_WS_URL ?? "ws://localhost:3000";
     const fallbackOrigin = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
     const wsUrl = new URL(rawBaseUrl, fallbackOrigin);
-    wsUrl.searchParams.set("difficulty", difficulty);
+    wsUrl.searchParams.set("difficulty", options.difficulty);
+    wsUrl.searchParams.set("map", options.mapId);
     return wsUrl.toString();
   }
 

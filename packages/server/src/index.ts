@@ -1,4 +1,4 @@
-import { parseDifficultyPreset, type DifficultyPreset } from "@pals-defence/shared";
+import { MAPS, parseDifficultyPreset, type DifficultyPreset } from "@pals-defence/shared";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
@@ -22,7 +22,11 @@ const difficultySeedOffset: Record<DifficultyPreset, number> = {
   normal: 10_000,
   hard: 20_000,
 };
-const roomsByDifficulty = new Map<DifficultyPreset, GameRoom>();
+const mapSeedOffset: Record<string, number> = {
+  "wardens-field": 0,
+  "fracture-crossroads": 50_000,
+};
+const rooms = new Map<string, GameRoom>();
 
 const wss = new WebSocketServer({ port: PORT });
 
@@ -30,20 +34,25 @@ wss.on("connection", (socket, request) => {
   const requestUrl = request.url ?? "/";
   const parsedUrl = new URL(requestUrl, `ws://localhost:${PORT}`);
   const requestedDifficulty = parsedUrl.searchParams.get("difficulty");
+  const requestedMapId = parsedUrl.searchParams.get("map") ?? "wardens-field";
   const difficulty = requestedDifficulty
     ? parseDifficultyPreset(requestedDifficulty)
     : defaultDifficulty;
+  const map = MAPS.find((m) => m.id === requestedMapId) ?? MAPS[0];
+  const roomKey = `${difficulty}_${map.id}`;
 
-  let room = roomsByDifficulty.get(difficulty);
+  let room = rooms.get(roomKey);
   if (!room) {
+    const seedOffset = difficultySeedOffset[difficulty] + (mapSeedOffset[map.id] ?? 0);
     room = new GameRoom({
-      seed: baseSeed + difficultySeedOffset[difficulty],
+      seed: baseSeed + seedOffset,
       difficulty,
+      map,
       progressionStore,
       telemetryStore,
     });
-    roomsByDifficulty.set(difficulty, room);
-    console.log(`[server] created room for difficulty=${difficulty}`);
+    rooms.set(roomKey, room);
+    console.log(`[server] created room for difficulty=${difficulty} map=${map.id}`);
   }
 
   room.attachConnection(socket);

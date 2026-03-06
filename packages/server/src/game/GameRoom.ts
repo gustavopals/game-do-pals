@@ -1,6 +1,5 @@
 import {
   BASE_MAX_HP,
-  DEFAULT_MAP,
   DIFFICULTY_BALANCE,
   ENEMY_DEFINITIONS,
   HERO_BASE_ATTACK_COOLDOWN_MS,
@@ -18,6 +17,7 @@ import {
   type ClientMessage,
   type DifficultyBalanceProfile,
   type DifficultyPreset,
+  type MapConfig,
   type EnemySnapshot,
   type GameSnapshot,
   type HeroSnapshot,
@@ -56,6 +56,7 @@ interface PlayerSession {
 interface GameRoomOptions {
   seed: number;
   difficulty: DifficultyPreset;
+  map: MapConfig;
   progressionStore: ProgressionStore;
   telemetryStore: TelemetryStore;
 }
@@ -150,7 +151,7 @@ const MID_RUN_OBJECTIVE_SLAYER_TARGET_BY_DIFFICULTY: Record<DifficultyPreset, nu
 };
 
 export class GameRoom {
-  private readonly map = DEFAULT_MAP;
+  private readonly map: MapConfig;
   private readonly progressionStore: ProgressionStore;
   private readonly telemetryStore: TelemetryStore;
 
@@ -198,6 +199,7 @@ export class GameRoom {
     this.progressionStore = options.progressionStore;
     this.telemetryStore = options.telemetryStore;
     this.difficulty = options.difficulty;
+    this.map = options.map;
     this.difficultyBalance = DIFFICULTY_BALANCE[this.difficulty];
     this.combatSystem = new CombatSystem(this.difficultyBalance);
     this.enemyAbilitySystem = new EnemyAbilitySystem(this.difficultyBalance);

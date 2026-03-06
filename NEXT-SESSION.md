@@ -16,14 +16,14 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 2. Música Adaptativa
+## 2. ~~Música Adaptativa~~ ✓ FEITO
 
-- Trilha de combate (durante wave)
-- Trilha de intermissão (entre waves)
-- Trilha de boss (wave com boss)
-- Transição suave entre os temas
+- ~~Trilha de combate (durante wave)~~
+- ~~Trilha de intermissão (entre waves)~~
+- ~~Trilha de boss (wave com boss)~~
+- ~~Transição suave entre os temas~~
 
-**Onde implementar:** `GameScene.ts` — eventos de início/fim de wave, spawn de boss
+**Implementado em:** `MusicEngine.ts` + `GameScene.ts`
 
 ---
 
@@ -59,13 +59,13 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 6. Tela de Configurações
+## 6. ~~Tela de Configurações~~ ✓ FEITO
 
-- Controle de volume (música / SFX separados)
-- Seleção de idioma (PT/EN já parcialmente implementado)
-- Keybinds documentados/visíveis
+- ~~Controle de volume (música / SFX separados)~~
+- ~~Seleção de idioma (PT/EN já parcialmente implementado)~~
+- ~~Keybinds documentados/visíveis~~
 
-**Onde implementar:** nova tela no fluxo do menu principal em `GameScene.ts`
+**Implementado em:** `GameScene.ts` (renderSettingsScreen) + `SfxEngine.ts` + `MusicEngine.ts`
 
 ---
 
@@ -79,30 +79,13 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 0. Reimaginacao Visual Completa (PRIORIDADE MAXIMA)
+## ~~0. Reimaginacao Visual Completa~~ ✓ FEITO
 
-A identidade visual atual nao agrada — reimaginar tudo do zero antes de continuar qualquer outra feature.
+~~A identidade visual atual nao agrada — reimaginar tudo do zero antes de continuar qualquer outra feature.~~
 
-### O que refazer
-- **Mapa:** layout, tiles, paleta de cores, estilo de terreno
-- **Personagens:** herói, inimigos (todos os tipos), boss
-- **Torres:** defender, archer, mage — silhuetas e paleta completamente novas
-- **Tema geral:** sair do pixel art puro — explorar algo unico e mais bonito
+**Implementado em:** `pixelArtCatalog.ts` + `style.css` + `GameScene.ts` + `main.ts`
 
-### Direcoes a considerar (Claude deve propor e decidir o que for mais unico/bonito)
-- Vetor flat com outlines expressivos (estilo Hades / Into the Breach)
-- Silhuetas fortes com paleta limitada e alto contraste (estilo FTL / Slay the Spire)
-- Arte com iluminacao emissiva / neon sobre fundo escuro (estilo atmosferico)
-- Geometrico abstrato com identidade propria (algo que nao exista no mercado igual)
-
-### O que nao mudar
-- Logica de jogo, sistemas, WebSocket, servidor — so a camada visual
-
-### Como atacar
-1. Claude propoe conceito visual com descricao detalhada de paleta, estilo, mood
-2. Implementa sprites/texturas novos em `pixelArtCatalog.ts` ou novo sistema de assets
-3. Atualiza mapa (`MapLayer` / `mapTexture`) para o novo estilo
-4. Atualiza CSS/UI para alinhar com o novo tema
+**Tema:** Void Wardens — obsidiano escuro + teal emissivo + âmbar de perigo + roxo arcano. Tiles de pedra/void, props temáticos (cristais, pilares, ruínas, tendrilas), sprites de herói/inimigos/torres completamente redesenhados, UI alinhada ao novo tema.
 
 ---
 
@@ -110,11 +93,11 @@ A identidade visual atual nao agrada — reimaginar tudo do zero antes de contin
 
 | Prioridade | Feature | Esforço estimado |
 |---|---|---|
-| 0 | Reimaginacao visual completa | Alto |
+| ~~0~~ | ~~Reimaginacao visual completa~~ ✓ | ~~Alto~~ |
 | 1 | Game juice (shake, flash, partículas) | Baixo |
 | 2 | Upgrades de torre | Médio |
-| 3 | Música adaptativa | Médio |
+| 3 | ~~Música adaptativa~~ ✓ | ~~Médio~~ |
 | 4 | Segundo mapa | Médio |
 | 5 | Meta progressão | Alto |
-| 6 | Tela de configurações | Baixo |
+| 6 | ~~Tela de configurações~~ ✓ | ~~Baixo~~ |
 | 7 | Salas privadas | Alto |

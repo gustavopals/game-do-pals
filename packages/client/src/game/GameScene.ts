@@ -35,7 +35,7 @@ import {
   PIXEL_TEXTURES,
   TOWER_TEXTURE_KEYS,
 } from "./assets/pixelArtCatalog";
-import { DEFAULT_MAP_LAYER_CONFIG, type MapLayerConfig } from "./assets/mapLayerConfig";
+import { DEFAULT_MAP_LAYER_CONFIG, MAP_LAYER_CONFIGS, type MapLayerConfig } from "./assets/mapLayerConfig";
 
 const TITLE_FONT = '"Cinzel", "Palatino Linotype", serif';
 const BODY_FONT = '"Spectral", "Segoe UI", serif';
@@ -45,7 +45,7 @@ const TOWER_PICK_RADIUS = 26;
 const CONTEXT_TARGET_PICK_RADIUS = 28;
 const ONBOARDING_STORAGE_KEY = "pals_defence_onboarding_advanced_v1";
 
-type ScreenMode = "menu" | "difficulty" | "connecting" | "playing" | "runEnd" | "settings";
+type ScreenMode = "menu" | "mapSelect" | "difficulty" | "connecting" | "playing" | "runEnd" | "settings";
 
 interface ActiveProjectile {
   id: number;
@@ -73,6 +73,20 @@ type ContextTarget =
   | { kind: "enemy"; value: EnemySnapshot }
   | { kind: "tower"; value: TowerSnapshot }
   | { kind: "hero"; value: HeroSnapshot };
+
+interface DeathBurst {
+  x: number;
+  y: number;
+  elapsedMs: number;
+  durationMs: number;
+  color: number;
+  isBoss: boolean;
+}
+
+interface HitFlash {
+  untilMs: number;
+  color: number;
+}
 
 type OnboardingStep = "moveTower" | "reroll" | "callWave";
 
@@ -117,6 +131,7 @@ export class GameScene extends Phaser.Scene {
   private playerId: string | null = null;
   private selectedTower: TowerTypeId = "defender";
   private selectedDifficulty: DifficultyPreset = "normal";
+  private selectedMapId = "wardens-field";
   private screenMode: ScreenMode = "menu";
   private runEndSummary: RunSummary | null = null;
   private runEndProgression: PlayerProgression | null = null;
@@ -132,6 +147,10 @@ export class GameScene extends Phaser.Scene {
   private latestProjectileTraceId = 0;
   private projectiles: ActiveProjectile[] = [];
   private ambientMotes: AmbientMote[] = [];
+  private deathBursts: DeathBurst[] = [];
+  private enemyHitFlashes = new Map<number, HitFlash>();
+  private baseFlashUntilMs = 0;
+  private activeFloatCount = 0;
   private mapLayerConfig: MapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
   private pixelTexturesReady = false;
   private mapRenderSignature = "";
@@ -322,6 +341,7 @@ export class GameScene extends Phaser.Scene {
         this.sanitizeTowerMoveSelection(snapshot);
         this.consumeProjectileTraces(snapshot.projectileTraces, previousSnapshot !== null);
         this.handleSnapshotAudio(previousSnapshot, snapshot);
+        this.handleSnapshotJuice(previousSnapshot, snapshot);
 
         if (this.screenMode === "playing" && snapshot.runStatus === "running") {
           const localHero = this.getLocalHero(snapshot);
@@ -387,6 +407,7 @@ export class GameScene extends Phaser.Scene {
     this.handleInput(delta);
     this.updateProjectiles(delta);
     this.updateAmbientMotes(delta);
+    this.updateDeathBursts(delta);
     this.syncEntitySprites();
     this.drawWorld();
     this.updateHud();
@@ -789,6 +810,8 @@ export class GameScene extends Phaser.Scene {
     this.drawHeroOverlays(snapshot.heroes);
 
     this.drawProjectiles();
+    this.drawDeathBursts();
+    this.drawBaseFlash(snapshot);
 
     this.drawPixelVignette(snapshot.map.width, snapshot.map.height);
   }
@@ -945,6 +968,7 @@ export class GameScene extends Phaser.Scene {
 
     if (
       this.screenMode === "menu" ||
+      this.screenMode === "mapSelect" ||
       this.screenMode === "difficulty" ||
       this.screenMode === "connecting" ||
       this.screenMode === "settings"
@@ -962,6 +986,9 @@ export class GameScene extends Phaser.Scene {
     switch (this.screenMode) {
       case "menu":
         this.renderMenuScreen();
+        break;
+      case "mapSelect":
+        this.renderMapSelectScreen();
         break;
       case "difficulty":
         this.renderDifficultyScreen();
@@ -1001,13 +1028,99 @@ export class GameScene extends Phaser.Scene {
     this.addScreenLore(tr(this.locale, "menu_lore"), 350);
 
     this.addScreenButton(800, 488, 340, 56, tr(this.locale, "menu_start_run"), () => {
-      this.screenMode = "difficulty";
+      this.screenMode = "mapSelect";
       this.renderScreen();
     });
     this.addScreenButton(800, 566, 200, 40, tr(this.locale, "settings_button"), () => {
       this.screenMode = "settings";
       this.renderScreen();
     });
+  }
+
+  private renderMapSelectScreen(): void {
+    this.statusText.setText(tr(this.locale, "map_select_title"));
+    this.addScreenTitle(tr(this.locale, "map_select_title"));
+
+    this.addMapCard(
+      800,
+      370,
+      "wardens-field",
+      tr(this.locale, "map_wardens_field_name"),
+      tr(this.locale, "map_wardens_field_desc"),
+      tr(this.locale, "map_wardens_field_paths"),
+    );
+    this.addMapCard(
+      800,
+      540,
+      "fracture-crossroads",
+      tr(this.locale, "map_fracture_crossroads_name"),
+      tr(this.locale, "map_fracture_crossroads_desc"),
+      tr(this.locale, "map_fracture_crossroads_paths"),
+    );
+
+    this.addScreenButton(800, 680, 200, 40, tr(this.locale, "back"), () => {
+      this.screenMode = "menu";
+      this.renderScreen();
+    });
+  }
+
+  private addMapCard(
+    x: number,
+    y: number,
+    mapId: string,
+    name: string,
+    description: string,
+    pathsLabel: string,
+  ): void {
+    const isSelected = this.selectedMapId === mapId;
+    const borderColor = isSelected ? 0xf4e7a0 : 0x7a8a84;
+    const borderAlpha = isSelected ? 1 : 0.6;
+
+    const container = this.add.container(0, 0).setDepth(301);
+    const rect = this.add
+      .rectangle(x, y, 720, 100, 0x1e2e32, 0.92)
+      .setStrokeStyle(2, borderColor, borderAlpha)
+      .setDepth(301);
+    const nameText = this.add
+      .text(x - 310, y - 26, name, {
+        color: isSelected ? "#f4e7a0" : "#c8d8d2",
+        fontSize: "22px",
+        fontFamily: TITLE_FONT,
+        fontStyle: "bold",
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(302);
+    const descText = this.add
+      .text(x - 310, y + 4, description, {
+        color: "#8ea8a0",
+        fontSize: "14px",
+        fontFamily: BODY_FONT,
+        wordWrap: { width: 560 },
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(302);
+    const pathsText = this.add
+      .text(x + 330, y, pathsLabel, {
+        color: isSelected ? "#f4e7a0" : "#7a9a92",
+        fontSize: "13px",
+        fontFamily: BODY_FONT,
+        align: "right",
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(302);
+
+    rect.setInteractive({ useHandCursor: true });
+    rect.on("pointerover", () => rect.setFillStyle(0x263e42, 1));
+    rect.on("pointerout", () => rect.setFillStyle(0x1e2e32, 0.92));
+    rect.on("pointerdown", () => {
+      this.sfx.playUiClick();
+      this.selectedMapId = mapId;
+      this.screenMode = "difficulty";
+      this.renderScreen();
+    });
+
+    container.add([rect, nameText, descText, pathsText]);
+    this.screenLayer.add(container);
   }
 
   private renderDifficultyScreen(): void {
@@ -1025,7 +1138,7 @@ export class GameScene extends Phaser.Scene {
       this.startRunWithDifficulty("hard");
     });
     this.addScreenButton(800, 708, 240, 44, tr(this.locale, "back"), () => {
-      this.screenMode = "menu";
+      this.screenMode = "mapSelect";
       this.renderScreen();
     });
   }
@@ -1265,7 +1378,7 @@ export class GameScene extends Phaser.Scene {
     this.client.disconnect();
     this.screenMode = "connecting";
     this.renderScreen();
-    this.client.connect({ difficulty });
+    this.client.connect({ difficulty, mapId: this.selectedMapId });
   }
 
   private addScreenPanel(
@@ -1674,22 +1787,22 @@ export class GameScene extends Phaser.Scene {
   private createContextPanelUi(): void {
     this.contextPanelContainer = this.add.container(0, 0).setDepth(197).setVisible(false);
     const panel = this.add
-      .rectangle(1388, 455, 385, 333, 0x080e1c, 0.92)
+      .rectangle(200, 420, 385, 333, 0x080e1c, 0.92)
       .setStrokeStyle(2, 0x009e98, 0.55)
       .setDepth(197);
     const header = this.add
-      .rectangle(1388, 314, 358, 38, 0x0c1828, 0.78)
+      .rectangle(200, 279, 358, 38, 0x0c1828, 0.78)
       .setStrokeStyle(1, 0x009e98, 0.32)
       .setDepth(198);
     this.contextPanelTitle = this.add
-      .text(1208, 298, "", {
+      .text(20, 263, "", {
         color: "#a8c8e0",
         fontSize: "18px",
         fontFamily: TITLE_FONT,
       })
       .setDepth(199);
     this.contextPanelBody = this.add
-      .text(1203, 340, "", {
+      .text(15, 305, "", {
         color: "#6878a0",
         fontSize: "14px",
         fontFamily: BODY_FONT,
@@ -2302,7 +2415,13 @@ export class GameScene extends Phaser.Scene {
       const bobY = Math.sin((this.time.now + enemy.id * 97) / 180) * (enemy.isBoss ? 2.5 : 1.8);
       sprite.setPosition(enemy.x, enemy.y + bobY);
       sprite.setDepth(32 + enemy.y * 0.05);
-      sprite.clearTint();
+      const flash = this.enemyHitFlashes.get(enemy.id);
+      if (flash && this.time.now < flash.untilMs) {
+        sprite.setTint(flash.color);
+      } else {
+        sprite.clearTint();
+        if (flash) this.enemyHitFlashes.delete(enemy.id);
+      }
       const scalePulse = 1 + Math.sin((this.time.now + enemy.id * 53) / 260) * 0.04;
       sprite.setScale(this.getEnemySpriteScale(enemy) * scalePulse);
       sprite.setAlpha(1);
