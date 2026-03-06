@@ -10,10 +10,14 @@ import {
   INITIAL_TOWER_CAP,
   MAX_WAVES,
   TICK_MS,
+  TOWER_LEVEL_DAMAGE_STEP_PCT,
+  TOWER_LEVEL_RANGE_STEP,
+  TOWER_MAX_LEVEL,
   TOWER_RELOCATE_COST,
   TOWER_DEFINITIONS,
   XP_PER_LEVEL_BASE,
   XP_PER_LEVEL_GROWTH,
+  getTowerUpgradeCost,
   type ClientMessage,
   type DifficultyBalanceProfile,
   type DifficultyPreset,
@@ -57,8 +61,12 @@ interface GameRoomOptions {
   seed: number;
   difficulty: DifficultyPreset;
   map: MapConfig;
+  isPrivateRoom: boolean;
+  roomCode: string | null;
+  requiresHostStart: boolean;
   progressionStore: ProgressionStore;
   telemetryStore: TelemetryStore;
+  onEmpty: () => void;
 }
 
 interface HeroSkillDefinition {
@@ -154,6 +162,12 @@ export class GameRoom {
   private readonly map: MapConfig;
   private readonly progressionStore: ProgressionStore;
   private readonly telemetryStore: TelemetryStore;
+  private readonly isPrivateRoom: boolean;
+  private readonly roomCode: string | null;
+  private readonly requiresHostStart: boolean;
+  private readonly onEmpty: () => void;
+  private hostPlayerId: string | null = null;
+  private hasMatchStarted = true;
 
   private playersById = new Map<string, PlayerSession>();
   private playerIdBySocket = new Map<WebSocket, string>();
@@ -200,6 +214,11 @@ export class GameRoom {
     this.telemetryStore = options.telemetryStore;
     this.difficulty = options.difficulty;
     this.map = options.map;
+    this.isPrivateRoom = options.isPrivateRoom;
+    this.roomCode = options.roomCode;
+    this.requiresHostStart = options.requiresHostStart;
+    this.onEmpty = options.onEmpty;
+    this.hasMatchStarted = !options.requiresHostStart;
     this.difficultyBalance = DIFFICULTY_BALANCE[this.difficulty];
     this.combatSystem = new CombatSystem(this.difficultyBalance);
     this.enemyAbilitySystem = new EnemyAbilitySystem(this.difficultyBalance);
@@ -262,6 +281,10 @@ export class GameRoom {
         this.handleTowerRelocation(session.hero, payload.towerId, payload.slotIndex);
         break;
       }
+      case "upgradeTower": {
+        this.handleTowerUpgrade(session.hero, payload.towerId);
+        break;
+      }
       case "chooseUpgrade": {
         this.handleUpgradeChoice(playerId, payload.upgradeId);
         break;
@@ -308,6 +331,9 @@ export class GameRoom {
     }
 
     this.playerIdBySocket.set(socket, playerId);
+    if (!this.hostPlayerId) {
+      this.hostPlayerId = playerId;
+    }
 
     const progression = this.progressionStore.get(playerId);
 
@@ -318,6 +344,11 @@ export class GameRoom {
       seed: this.seed,
       difficulty: this.difficulty,
       map: this.map,
+      isPrivateRoom: this.isPrivateRoom,
+      roomCode: this.roomCode,
+      hostPlayerId: this.hostPlayerId,
+      awaitingHostStart: this.isAwaitingHostStart(),
+      playerCount: this.playersById.size,
       progression,
     });
 
@@ -343,6 +374,7 @@ export class GameRoom {
   ): void {
     if (
       this.runStatus !== "running" ||
+      this.isAwaitingHostStart() ||
       this.hasUpgradeSelectionPause() ||
       hero.state !== "alive" ||
       hero.hp <= 0
@@ -386,7 +418,7 @@ export class GameRoom {
       y: slot.y,
       level: 1,
       damage: stats.damage,
-      range: towerDef.baseRange,
+      range: stats.range,
       cooldownMs: stats.cooldownMs,
       slotIndex,
       cooldownLeftMs: this.rng.rangeInt(0, stats.cooldownMs),
@@ -399,6 +431,7 @@ export class GameRoom {
   private handleTowerRelocation(hero: HeroRuntime, towerId: number, slotIndex: number): void {
     if (
       this.runStatus !== "running" ||
+      this.isAwaitingHostStart() ||
       this.hasUpgradeSelectionPause() ||
       hero.state !== "alive" ||
       hero.hp <= 0
@@ -440,7 +473,46 @@ export class GameRoom {
     tower.cooldownLeftMs = Math.min(tower.cooldownLeftMs, tower.cooldownMs);
   }
 
+  private handleTowerUpgrade(hero: HeroRuntime, towerId: number): void {
+    if (
+      this.runStatus !== "running" ||
+      this.isAwaitingHostStart() ||
+      this.hasUpgradeSelectionPause() ||
+      hero.state !== "alive" ||
+      hero.hp <= 0
+    ) {
+      return;
+    }
+
+    if (!Number.isInteger(towerId) || towerId <= 0) {
+      return;
+    }
+
+    const tower = this.towers.find((entry) => entry.id === towerId && entry.ownerId === hero.id);
+    if (!tower || tower.level >= TOWER_MAX_LEVEL) {
+      return;
+    }
+
+    const upgradeCost = getTowerUpgradeCost(tower.level);
+    if (hero.gold < upgradeCost) {
+      return;
+    }
+
+    hero.gold -= upgradeCost;
+    tower.level += 1;
+
+    const stats = this.getTowerStats(hero, tower.typeId, tower.level);
+    tower.damage = stats.damage;
+    tower.range = stats.range;
+    tower.cooldownMs = stats.cooldownMs;
+    tower.cooldownLeftMs = Math.min(tower.cooldownLeftMs, tower.cooldownMs);
+  }
+
   private handleUpgradeChoice(playerId: string, upgradeId: string): void {
+    if (this.isAwaitingHostStart()) {
+      return;
+    }
+
     const session = this.playersById.get(playerId);
     if (!session) {
       return;
@@ -481,7 +553,12 @@ export class GameRoom {
     }
 
     const hero = session.hero;
-    if (this.runStatus !== "running" || hero.state !== "alive" || hero.hp <= 0) {
+    if (
+      this.runStatus !== "running" ||
+      this.isAwaitingHostStart() ||
+      hero.state !== "alive" ||
+      hero.hp <= 0
+    ) {
       return;
     }
 
@@ -519,6 +596,7 @@ export class GameRoom {
   ): void {
     if (
       this.runStatus !== "running" ||
+      this.isAwaitingHostStart() ||
       this.hasUpgradeSelectionPause() ||
       hero.pendingUpgradeOptions ||
       hero.state !== "alive" ||
@@ -608,6 +686,15 @@ export class GameRoom {
       return;
     }
 
+    if (this.isAwaitingHostStart()) {
+      if (!this.isHost(playerId)) {
+        return;
+      }
+      this.hasMatchStarted = true;
+      this.resetWaveRuntimeTrackers();
+      return;
+    }
+
     if (session.hero.state === "dead") {
       return;
     }
@@ -639,7 +726,11 @@ export class GameRoom {
     this.tick += 1;
     this.elapsedMs += deltaMs;
 
-    if (this.runStatus === "running" && !this.hasUpgradeSelectionPause()) {
+    if (
+      this.runStatus === "running" &&
+      !this.isAwaitingHostStart() &&
+      !this.hasUpgradeSelectionPause()
+    ) {
       this.updateHeroCooldowns(deltaMs);
       this.updateHeroMovement(deltaMs);
       const previousWave = this.waveSystem.currentWave;
@@ -1393,8 +1484,9 @@ export class GameRoom {
         continue;
       }
 
-      const stats = this.getTowerStats(hero, tower.typeId);
+      const stats = this.getTowerStats(hero, tower.typeId, tower.level);
       tower.damage = stats.damage;
+      tower.range = stats.range;
       tower.cooldownMs = stats.cooldownMs;
       tower.cooldownLeftMs = Math.min(tower.cooldownLeftMs, tower.cooldownMs);
     }
@@ -1403,11 +1495,19 @@ export class GameRoom {
   private getTowerStats(
     hero: HeroRuntime,
     towerTypeId: Extract<TowerSnapshot["typeId"], string>,
-  ): { damage: number; cooldownMs: number } {
+    level = 1,
+  ): { damage: number; range: number; cooldownMs: number } {
     const towerDef = TOWER_DEFINITIONS[towerTypeId];
+    const normalizedLevel = Math.max(1, Math.floor(level));
+    const levelDamageMultiplier =
+      1 + ((normalizedLevel - 1) * TOWER_LEVEL_DAMAGE_STEP_PCT) / 100;
 
     return {
-      damage: Math.max(1, Math.round(towerDef.baseDamage * hero.towerDamageMultiplier)),
+      damage: Math.max(
+        1,
+        Math.round(towerDef.baseDamage * levelDamageMultiplier * hero.towerDamageMultiplier),
+      ),
+      range: Math.max(35, Math.round(towerDef.baseRange + (normalizedLevel - 1) * TOWER_LEVEL_RANGE_STEP)),
       cooldownMs: Math.max(180, Math.round(towerDef.baseCooldownMs * hero.towerCooldownMultiplier)),
     };
   }
@@ -1462,6 +1562,7 @@ export class GameRoom {
     this.baseHp = this.baseMaxHp;
     this.frameProjectileTraces = [];
     this.runStatus = "running";
+    this.hasMatchStarted = !this.requiresHostStart;
     this.midRunObjective = null;
     this.midRunObjectiveIssued = false;
     this.resetWaveRuntimeTrackers();
@@ -1529,6 +1630,11 @@ export class GameRoom {
       seed: this.seed,
       difficulty: this.difficulty,
       map: this.map,
+      isPrivateRoom: this.isPrivateRoom,
+      roomCode: this.roomCode,
+      hostPlayerId: this.hostPlayerId,
+      awaitingHostStart: this.isAwaitingHostStart(),
+      playerCount: this.playersById.size,
       wave: this.waveSystem.currentWave,
       totalWaves: MAX_WAVES,
       waveState: this.waveSystem.waveState,
@@ -1679,6 +1785,18 @@ export class GameRoom {
 
     this.playersById.delete(playerId);
     this.towers = this.towers.filter((tower) => tower.ownerId !== playerId);
+
+    if (this.hostPlayerId === playerId) {
+      const nextHost = this.playersById.keys().next();
+      this.hostPlayerId = nextHost.done ? null : nextHost.value;
+    }
+
+    if (this.playersById.size === 0) {
+      this.onEmpty();
+      return;
+    }
+
+    this.broadcastState();
   }
 
   private sanitizeId(value: string): string {
@@ -1701,5 +1819,13 @@ export class GameRoom {
 
     const maybe = payload as { type?: unknown };
     return typeof maybe.type === "string";
+  }
+
+  private isAwaitingHostStart(): boolean {
+    return this.requiresHostStart && !this.hasMatchStarted;
+  }
+
+  private isHost(playerId: string): boolean {
+    return this.hostPlayerId === playerId;
   }
 }

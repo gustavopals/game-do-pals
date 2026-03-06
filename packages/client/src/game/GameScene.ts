@@ -11,7 +11,11 @@ import type {
   TowerSnapshot,
   TowerTypeId,
 } from "@pals-defence/shared";
-import { TOWER_RELOCATE_COST } from "@pals-defence/shared";
+import {
+  TOWER_MAX_LEVEL,
+  TOWER_RELOCATE_COST,
+  getTowerUpgradeCost,
+} from "@pals-defence/shared";
 import Phaser from "phaser";
 
 import {
@@ -26,7 +30,7 @@ import {
 } from "../i18n";
 import { MusicEngine, type MusicTheme } from "../audio/MusicEngine";
 import { SfxEngine } from "../audio/SfxEngine";
-import { GameClient } from "../network/GameClient";
+import { GameClient, type MatchmakingMode } from "../network/GameClient";
 import { UpgradeOverlay } from "../ui/UpgradeOverlay";
 import {
   ENEMY_TEXTURE_KEYS,
@@ -132,13 +136,18 @@ export class GameScene extends Phaser.Scene {
   private selectedTower: TowerTypeId = "defender";
   private selectedDifficulty: DifficultyPreset = "normal";
   private selectedMapId = "wardens-field";
+  private selectedMatchMode: MatchmakingMode = "public";
+  private selectedPrivateRoomCode = "";
   private screenMode: ScreenMode = "menu";
   private runEndSummary: RunSummary | null = null;
   private runEndProgression: PlayerProgression | null = null;
   private connectionMessage = "";
+  private activeRoomCode: string | null = null;
+  private activeHostPlayerId: string | null = null;
   private locale: Locale = "pt";
   private moveModeEnabled = false;
   private selectedMoveTowerId: number | null = null;
+  private selectedUpgradeTowerId: number | null = null;
 
   private inputSendAccumulatorMs = 0;
   private pointerWorldX = 800;
@@ -150,12 +159,14 @@ export class GameScene extends Phaser.Scene {
   private deathBursts: DeathBurst[] = [];
   private enemyHitFlashes = new Map<number, HitFlash>();
   private baseFlashUntilMs = 0;
+  private nextScreenShakeAtMs = 0;
   private activeFloatCount = 0;
   private mapLayerConfig: MapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
   private pixelTexturesReady = false;
   private mapRenderSignature = "";
 
   private towerSprites = new Map<number, Phaser.GameObjects.Sprite>();
+  private towerLevelLabels = new Map<number, Phaser.GameObjects.Text>();
   private enemySprites = new Map<number, Phaser.GameObjects.Sprite>();
   private heroSprites = new Map<string, Phaser.GameObjects.Sprite>();
 
@@ -167,6 +178,7 @@ export class GameScene extends Phaser.Scene {
     q: Phaser.Input.Keyboard.Key;
     e: Phaser.Input.Keyboard.Key;
     r: Phaser.Input.Keyboard.Key;
+    g: Phaser.Input.Keyboard.Key;
     v: Phaser.Input.Keyboard.Key;
     f: Phaser.Input.Keyboard.Key;
     space: Phaser.Input.Keyboard.Key;
@@ -184,10 +196,14 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     this.load.json("map-layers-wardens-field", "assets/maps/wardens-field.layers.json");
+    this.load.json(
+      "map-layers-fracture-crossroads",
+      "assets/maps/fracture-crossroads.layers.json",
+    );
   }
 
   create(): void {
-    this.resolveMapLayerConfig();
+    this.resolveMapLayerConfig(this.selectedMapId);
     this.ensurePixelTextures();
     this.mapTexture = this.add
       .renderTexture(0, 0, 1600, 900)
@@ -301,6 +317,7 @@ export class GameScene extends Phaser.Scene {
       q: Phaser.Input.Keyboard.KeyCodes.Q,
       e: Phaser.Input.Keyboard.KeyCodes.E,
       r: Phaser.Input.Keyboard.KeyCodes.R,
+      g: Phaser.Input.Keyboard.KeyCodes.G,
       v: Phaser.Input.Keyboard.KeyCodes.V,
       f: Phaser.Input.Keyboard.KeyCodes.F,
       space: Phaser.Input.Keyboard.KeyCodes.SPACE,
@@ -329,8 +346,13 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.client.setHandlers({
-      onConnected: (playerId) => {
-        this.playerId = playerId;
+      onConnected: (welcome) => {
+        this.playerId = welcome.playerId;
+        this.activeRoomCode = welcome.roomCode;
+        this.activeHostPlayerId = welcome.hostPlayerId;
+        if (welcome.roomCode && this.selectedMatchMode !== "private_join") {
+          this.selectedPrivateRoomCode = welcome.roomCode;
+        }
         this.screenMode = "playing";
         this.connectionMessage = "";
         this.renderScreen();
@@ -338,7 +360,10 @@ export class GameScene extends Phaser.Scene {
       onState: (snapshot) => {
         const previousSnapshot = this.snapshot;
         this.snapshot = snapshot;
+        this.activeRoomCode = snapshot.roomCode;
+        this.activeHostPlayerId = snapshot.hostPlayerId;
         this.sanitizeTowerMoveSelection(snapshot);
+        this.sanitizeTowerUpgradeSelection(snapshot);
         this.consumeProjectileTraces(snapshot.projectileTraces, previousSnapshot !== null);
         this.handleSnapshotAudio(previousSnapshot, snapshot);
         this.handleSnapshotJuice(previousSnapshot, snapshot);
@@ -350,6 +375,8 @@ export class GameScene extends Phaser.Scene {
           } else if (localHero?.state === "downed") {
             const seconds = Math.ceil(localHero.downedRemainingMs / 1000);
             this.statusText.setText(tr(this.locale, "downed_hint", { seconds }));
+          } else if (snapshot.awaitingHostStart) {
+            this.statusText.setText(this.getPrivateLobbyHintText(snapshot));
           } else if (snapshot.isUpgradeSelectionPhase) {
             this.statusText.setText(tr(this.locale, "upgrade_pause_hint"));
           } else if (snapshot.waveState === "intermission") {
@@ -424,6 +451,7 @@ export class GameScene extends Phaser.Scene {
       this.screenMode === "playing" &&
       Boolean(this.snapshot) &&
       this.snapshot?.runStatus === "running" &&
+      !this.snapshot?.awaitingHostStart &&
       !this.snapshot?.isUpgradeSelectionPhase &&
       isLocalHeroAlive;
 
@@ -448,6 +476,9 @@ export class GameScene extends Phaser.Scene {
     if (canAct && Phaser.Input.Keyboard.JustDown(this.keys.e)) {
       this.client.castSkill("aetherPulse", this.pointerWorldX, this.pointerWorldY);
     }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.g)) {
+      this.tryUpgradeSelectedTower();
+    }
     if (Phaser.Input.Keyboard.JustDown(this.keys.r)) {
       this.tryRerollUpgradeOptions();
     }
@@ -471,6 +502,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.trySelectTowerForUpgrade(x, y)) {
+      return;
+    }
+
     this.tryPlaceTower(x, y);
   }
 
@@ -479,6 +514,7 @@ export class GameScene extends Phaser.Scene {
       this.screenMode !== "playing" ||
       !this.snapshot ||
       this.snapshot.runStatus !== "running" ||
+      this.snapshot.awaitingHostStart ||
       this.snapshot.isUpgradeSelectionPhase
     ) {
       return;
@@ -505,6 +541,7 @@ export class GameScene extends Phaser.Scene {
       this.screenMode !== "playing" ||
       !this.snapshot ||
       this.snapshot.runStatus !== "running" ||
+      this.snapshot.awaitingHostStart ||
       this.snapshot.isUpgradeSelectionPhase
     ) {
       return false;
@@ -533,6 +570,31 @@ export class GameScene extends Phaser.Scene {
     this.client.moveTower(this.selectedMoveTowerId, slotIndex);
     this.markOnboardingStep("moveTower");
     this.selectedMoveTowerId = null;
+    return true;
+  }
+
+  private trySelectTowerForUpgrade(x: number, y: number): boolean {
+    if (
+      this.screenMode !== "playing" ||
+      !this.snapshot ||
+      this.snapshot.runStatus !== "running" ||
+      this.snapshot.awaitingHostStart ||
+      this.snapshot.isUpgradeSelectionPhase
+    ) {
+      return false;
+    }
+
+    const localHero = this.getLocalHero();
+    if (!localHero || localHero.state !== "alive" || localHero.hp <= 0) {
+      return false;
+    }
+
+    const clickedTower = this.findClosestOwnedTower(x, y);
+    if (!clickedTower) {
+      return false;
+    }
+
+    this.selectedUpgradeTowerId = clickedTower.id;
     return true;
   }
 
@@ -594,6 +656,36 @@ export class GameScene extends Phaser.Scene {
     this.client.rerollUpgrades();
   }
 
+  private tryUpgradeSelectedTower(): void {
+    if (
+      this.screenMode !== "playing" ||
+      !this.snapshot ||
+      this.snapshot.runStatus !== "running" ||
+      this.snapshot.awaitingHostStart ||
+      this.snapshot.isUpgradeSelectionPhase
+    ) {
+      return;
+    }
+
+    const localHero = this.getLocalHero();
+    if (!localHero || localHero.state !== "alive" || localHero.hp <= 0) {
+      return;
+    }
+
+    const tower = this.getSelectedUpgradeTower();
+    if (!tower || tower.level >= TOWER_MAX_LEVEL) {
+      return;
+    }
+
+    const cost = getTowerUpgradeCost(tower.level);
+    if (localHero.gold < cost) {
+      return;
+    }
+
+    this.sfx.playUiClick();
+    this.client.upgradeTower(tower.id);
+  }
+
   private tryStartNextWave(): void {
     if (
       this.screenMode !== "playing" ||
@@ -601,6 +693,15 @@ export class GameScene extends Phaser.Scene {
       this.snapshot.runStatus !== "running" ||
       this.snapshot.isUpgradeSelectionPhase
     ) {
+      return;
+    }
+
+    if (this.snapshot.awaitingHostStart) {
+      if (!this.playerId || this.snapshot.hostPlayerId !== this.playerId) {
+        return;
+      }
+      this.sfx.playUiClick();
+      this.client.startNextWave();
       return;
     }
 
@@ -687,6 +788,10 @@ export class GameScene extends Phaser.Scene {
 
   private updateMusicTheme(snapshot: GameSnapshot): void {
     if (snapshot.runStatus !== "running") return;
+    if (snapshot.awaitingHostStart) {
+      this.music.playTheme("idle");
+      return;
+    }
     const hasBoss = snapshot.enemies.some((e) => e.isBoss);
     const theme: MusicTheme =
       snapshot.waveState === "spawning" ? (hasBoss ? "boss" : "combat") : "idle";
@@ -754,6 +859,150 @@ export class GameScene extends Phaser.Scene {
     ) {
       this.sfx.playReviveStart();
     }
+  }
+
+  private handleSnapshotJuice(previousSnapshot: GameSnapshot | null, snapshot: GameSnapshot): void {
+    if (!previousSnapshot || this.screenMode !== "playing") {
+      return;
+    }
+
+    const now = this.time.now;
+    const previousEnemiesById = new Map<number, EnemySnapshot>(
+      previousSnapshot.enemies.map((enemy) => [enemy.id, enemy]),
+    );
+    const currentEnemiesById = new Map<number, EnemySnapshot>(
+      snapshot.enemies.map((enemy) => [enemy.id, enemy]),
+    );
+
+    for (const enemy of snapshot.enemies) {
+      const previousEnemy = previousEnemiesById.get(enemy.id);
+      if (!previousEnemy) {
+        continue;
+      }
+
+      const damageTaken = Math.max(0, previousEnemy.hp - enemy.hp);
+      if (damageTaken <= 0) {
+        continue;
+      }
+
+      const flashColor = damageTaken >= 14 || enemy.isBoss ? 0xffffff : 0xff7078;
+      this.enemyHitFlashes.set(enemy.id, {
+        untilMs: now + 95,
+        color: flashColor,
+      });
+
+      this.spawnFloatingDamageText(
+        enemy.x + Phaser.Math.Between(-8, 8),
+        enemy.y - (enemy.isBoss ? 32 : 20),
+        damageTaken,
+      );
+    }
+
+    for (const previousEnemy of previousSnapshot.enemies) {
+      if (currentEnemiesById.has(previousEnemy.id)) {
+        continue;
+      }
+
+      this.deathBursts.push({
+        x: previousEnemy.x,
+        y: previousEnemy.y,
+        elapsedMs: 0,
+        durationMs: previousEnemy.isBoss ? 560 : 360,
+        color: previousEnemy.isBoss
+          ? 0xff8a4f
+          : previousEnemy.typeId === "elite"
+            ? 0xb082ff
+            : 0x66f2c4,
+        isBoss: previousEnemy.isBoss,
+      });
+
+      this.triggerScreenShake(previousEnemy.isBoss ? 220 : 90, previousEnemy.isBoss ? 0.008 : 0.003);
+    }
+
+    if (this.deathBursts.length > 80) {
+      this.deathBursts.splice(0, this.deathBursts.length - 80);
+    }
+
+    if (snapshot.baseHp < previousSnapshot.baseHp) {
+      const baseDamage = previousSnapshot.baseHp - snapshot.baseHp;
+      this.baseFlashUntilMs = now + 180;
+      this.triggerScreenShake(140, 0.003 + Math.min(0.004, baseDamage * 0.00055));
+    }
+
+    if (this.playerId) {
+      const previousLocalHero = previousSnapshot.heroes.find((hero) => hero.id === this.playerId);
+      const currentLocalHero = snapshot.heroes.find((hero) => hero.id === this.playerId);
+      if (
+        previousLocalHero &&
+        currentLocalHero &&
+        currentLocalHero.state !== "dead" &&
+        currentLocalHero.hp < previousLocalHero.hp
+      ) {
+        const heroDamage = previousLocalHero.hp - currentLocalHero.hp;
+        this.spawnFloatingDamageText(
+          currentLocalHero.x + Phaser.Math.Between(-9, 9),
+          currentLocalHero.y - 36,
+          heroDamage,
+          "#ffb6be",
+        );
+        this.triggerScreenShake(110, 0.0035 + Math.min(0.0045, heroDamage * 0.00045));
+      }
+    }
+  }
+
+  private spawnFloatingDamageText(
+    x: number,
+    y: number,
+    amount: number,
+    color = "#ffd3d8",
+  ): void {
+    if (!Number.isFinite(amount) || amount <= 0 || this.activeFloatCount >= 36) {
+      return;
+    }
+
+    this.activeFloatCount += 1;
+    const text = this.add
+      .text(x, y, `-${Math.max(1, Math.round(amount))}`, {
+        color,
+        fontSize: "16px",
+        fontFamily: TITLE_FONT,
+        fontStyle: "bold",
+        stroke: "#250710",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(220);
+
+    this.tweens.add({
+      targets: text,
+      y: y - Phaser.Math.Between(20, 34),
+      alpha: 0,
+      scale: 0.85,
+      duration: Phaser.Math.Between(380, 560),
+      ease: "Cubic.Out",
+      onComplete: () => {
+        text.destroy();
+        this.activeFloatCount = Math.max(0, this.activeFloatCount - 1);
+      },
+    });
+  }
+
+  private triggerScreenShake(durationMs: number, intensity: number): void {
+    if (this.time.now < this.nextScreenShakeAtMs) {
+      return;
+    }
+
+    this.nextScreenShakeAtMs = this.time.now + 72;
+    const clampedIntensity = Phaser.Math.Clamp(intensity, 0.0015, 0.012);
+    this.cameras.main.shake(Math.max(45, Math.floor(durationMs)), clampedIntensity, false);
+  }
+
+  private updateDeathBursts(deltaMs: number): void {
+    for (const burst of this.deathBursts) {
+      burst.elapsedMs += deltaMs;
+    }
+
+    this.deathBursts = this.deathBursts.filter((burst) => burst.elapsedMs < burst.durationMs);
   }
 
   private updateProjectiles(deltaMs: number): void {
@@ -868,6 +1117,45 @@ export class GameScene extends Phaser.Scene {
         this.overlayGraphics.lineBetween(previousX, previousY, x, y);
       }
     }
+  }
+
+  private drawDeathBursts(): void {
+    for (const burst of this.deathBursts) {
+      const progress = Phaser.Math.Clamp(burst.elapsedMs / burst.durationMs, 0, 1);
+      const inverse = 1 - progress;
+      const ringRadius = (burst.isBoss ? 18 : 10) + progress * (burst.isBoss ? 58 : 28);
+      const ringThickness = burst.isBoss ? 4 : 2.4;
+
+      this.overlayGraphics.lineStyle(ringThickness, burst.color, inverse * 0.92);
+      this.overlayGraphics.strokeCircle(burst.x, burst.y - 2, ringRadius);
+
+      const particleCount = burst.isBoss ? 14 : 8;
+      for (let i = 0; i < particleCount; i += 1) {
+        const angle = (Math.PI * 2 * i) / particleCount + progress * 4.8;
+        const distance = (burst.isBoss ? 6 : 3) + progress * (burst.isBoss ? 54 : 23);
+        const px = burst.x + Math.cos(angle) * distance;
+        const py = burst.y - 2 + Math.sin(angle) * distance;
+        const size = (burst.isBoss ? 2.7 : 1.8) * (0.45 + inverse * 0.75);
+
+        this.overlayGraphics.fillStyle(burst.color, inverse * 0.85);
+        this.overlayGraphics.fillCircle(px, py, size);
+      }
+    }
+  }
+
+  private drawBaseFlash(snapshot: GameSnapshot): void {
+    if (this.time.now > this.baseFlashUntilMs) {
+      return;
+    }
+
+    const remaining = Phaser.Math.Clamp((this.baseFlashUntilMs - this.time.now) / 180, 0, 1);
+    const { x, y } = snapshot.map.basePosition;
+
+    this.overlayGraphics.fillStyle(0xff4f6a, remaining * 0.16);
+    this.overlayGraphics.fillRect(0, 0, snapshot.map.width, snapshot.map.height);
+
+    this.overlayGraphics.lineStyle(4, 0xffc8d0, remaining * 0.95);
+    this.overlayGraphics.strokeCircle(x, y - 2, 36 + (1 - remaining) * 22);
   }
 
   private updateHud(): void {
@@ -1126,21 +1414,95 @@ export class GameScene extends Phaser.Scene {
   private renderDifficultyScreen(): void {
     this.statusText.setText(tr(this.locale, "difficulty_title"));
     this.addScreenTitle(tr(this.locale, "difficulty_title"));
-    this.addScreenLore(tr(this.locale, "difficulty_lore"), 318);
+    this.addScreenLore(tr(this.locale, "difficulty_lore"), 300);
+    this.addMatchModeSelector();
 
-    this.addDifficultyButton(800, 400, tr(this.locale, "difficulty_easy"), tr(this.locale, "difficulty_easy_desc"), () => {
+    this.addDifficultyButton(800, 436, tr(this.locale, "difficulty_easy"), tr(this.locale, "difficulty_easy_desc"), () => {
       this.startRunWithDifficulty("easy");
     });
-    this.addDifficultyButton(800, 498, tr(this.locale, "difficulty_normal"), tr(this.locale, "difficulty_normal_desc"), () => {
+    this.addDifficultyButton(800, 534, tr(this.locale, "difficulty_normal"), tr(this.locale, "difficulty_normal_desc"), () => {
       this.startRunWithDifficulty("normal");
     });
-    this.addDifficultyButton(800, 596, tr(this.locale, "difficulty_hard"), tr(this.locale, "difficulty_hard_desc"), () => {
+    this.addDifficultyButton(800, 632, tr(this.locale, "difficulty_hard"), tr(this.locale, "difficulty_hard_desc"), () => {
       this.startRunWithDifficulty("hard");
     });
-    this.addScreenButton(800, 708, 240, 44, tr(this.locale, "back"), () => {
+    this.addScreenButton(800, 740, 240, 44, tr(this.locale, "back"), () => {
       this.screenMode = "mapSelect";
       this.renderScreen();
     });
+  }
+
+  private addMatchModeSelector(): void {
+    const modeLabel = this.getSelectedMatchModeLabel();
+    const modeDetail =
+      this.selectedMatchMode === "private_join" && this.selectedPrivateRoomCode
+        ? tr(this.locale, "room_mode_join_detail", { code: this.selectedPrivateRoomCode })
+        : modeLabel;
+    const label = this.add
+      .text(800, 352, tr(this.locale, "room_mode_label", { mode: modeDetail }), {
+        color: "#8ea8a0",
+        fontSize: "15px",
+        fontFamily: BODY_FONT,
+      })
+      .setOrigin(0.5)
+      .setDepth(302);
+    this.screenLayer.add(label);
+
+    this.addMatchModeButton(566, 390, tr(this.locale, "room_mode_public"), "public");
+    this.addMatchModeButton(800, 390, tr(this.locale, "room_mode_private_create"), "private_create");
+    this.addMatchModeButton(1034, 390, tr(this.locale, "room_mode_private_join"), "private_join");
+  }
+
+  private addMatchModeButton(x: number, y: number, label: string, mode: MatchmakingMode): void {
+    const selected = this.selectedMatchMode === mode;
+    const rect = this.add
+      .rectangle(x, y, 216, 40, selected ? 0x1f3948 : 0x0c1828, 0.96)
+      .setStrokeStyle(2, selected ? 0xf4e7a0 : 0x00e5d4, selected ? 0.88 : 0.55)
+      .setDepth(301)
+      .setInteractive({ useHandCursor: true });
+    const text = this.add
+      .text(x, y, label, {
+        color: selected ? "#fff0c0" : "#b0f0ec",
+        fontSize: "14px",
+        fontFamily: TITLE_FONT,
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(302);
+
+    rect.on("pointerover", () => rect.setFillStyle(selected ? 0x2a4255 : 0x162840, 1));
+    rect.on("pointerout", () => rect.setFillStyle(selected ? 0x1f3948 : 0x0c1828, 0.96));
+    rect.on("pointerdown", () => {
+      this.sfx.playUiClick();
+      this.handleSelectMatchMode(mode);
+    });
+
+    this.screenLayer.add(rect);
+    this.screenLayer.add(text);
+  }
+
+  private handleSelectMatchMode(mode: MatchmakingMode): void {
+    if (mode === "private_join") {
+      const rawCode = window.prompt(
+        tr(this.locale, "room_code_prompt"),
+        this.selectedPrivateRoomCode || "",
+      );
+      if (rawCode === null) {
+        return;
+      }
+
+      const normalized = this.normalizeRoomCode(rawCode);
+      if (!normalized) {
+        this.statusText.setText(tr(this.locale, "room_code_invalid"));
+        return;
+      }
+      this.selectedPrivateRoomCode = normalized;
+    } else if (this.selectedMatchMode === "private_join") {
+      this.selectedPrivateRoomCode = "";
+    }
+
+    this.selectedMatchMode = mode;
+    this.renderScreen();
   }
 
   private renderConnectingScreen(): void {
@@ -1151,7 +1513,15 @@ export class GameScene extends Phaser.Scene {
         difficulty: this.getDifficultyLabel(this.selectedDifficulty),
       }),
     );
-    this.addScreenLore(tr(this.locale, "connecting_lore"), 403);
+    const modeLabel = this.getSelectedMatchModeLabel();
+    const modeLine =
+      this.selectedMatchMode === "private_join" && this.selectedPrivateRoomCode
+        ? tr(this.locale, "connecting_mode_with_code", {
+            mode: modeLabel,
+            code: this.selectedPrivateRoomCode,
+          })
+        : tr(this.locale, "connecting_mode", { mode: modeLabel });
+    this.addScreenLore([modeLine, tr(this.locale, "connecting_lore")].join("\n"), 403);
   }
 
   private renderRunEndScreen(): void {
@@ -1234,6 +1604,7 @@ export class GameScene extends Phaser.Scene {
       tr(this.locale, "settings_keybind_skill_e"),
       tr(this.locale, "settings_keybind_towers"),
       tr(this.locale, "settings_keybind_move_tower"),
+      tr(this.locale, "settings_keybind_upgrade_tower"),
       tr(this.locale, "settings_keybind_wave"),
       tr(this.locale, "settings_keybind_revive"),
       tr(this.locale, "settings_keybind_reroll"),
@@ -1363,8 +1734,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startRunWithDifficulty(difficulty: DifficultyPreset): void {
+    if (this.selectedMatchMode === "private_join" && !this.selectedPrivateRoomCode) {
+      this.statusText.setText(tr(this.locale, "room_code_invalid"));
+      return;
+    }
+
     this.selectedDifficulty = difficulty;
     this.connectionMessage = "";
+    this.activeRoomCode = null;
+    this.activeHostPlayerId = null;
     this.runEndSummary = null;
     this.runEndProgression = null;
     this.playerId = null;
@@ -1378,7 +1756,12 @@ export class GameScene extends Phaser.Scene {
     this.client.disconnect();
     this.screenMode = "connecting";
     this.renderScreen();
-    this.client.connect({ difficulty, mapId: this.selectedMapId });
+    this.client.connect({
+      difficulty,
+      mapId: this.selectedMapId,
+      mode: this.selectedMatchMode,
+      roomCode: this.selectedMatchMode === "private_join" ? this.selectedPrivateRoomCode : undefined,
+    });
   }
 
   private addScreenPanel(
@@ -1526,6 +1909,8 @@ export class GameScene extends Phaser.Scene {
             seconds: Math.ceil(localHero.downedRemainingMs / 1000),
           }),
         );
+      } else if (this.snapshot.awaitingHostStart) {
+        this.statusText.setText(this.getPrivateLobbyHintText(this.snapshot));
       } else if (this.snapshot.isUpgradeSelectionPhase) {
         this.statusText.setText(tr(this.locale, "upgrade_pause_hint"));
       } else if (this.snapshot.waveState === "intermission") {
@@ -1579,6 +1964,29 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private getSelectedMatchModeLabel(): string {
+    switch (this.selectedMatchMode) {
+      case "private_create":
+        return tr(this.locale, "room_mode_private_create");
+      case "private_join":
+        return tr(this.locale, "room_mode_private_join");
+      case "public":
+      default:
+        return tr(this.locale, "room_mode_public");
+    }
+  }
+
+  private normalizeRoomCode(raw: string): string | null {
+    const normalized = raw
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (normalized.length < 4 || normalized.length > 12) {
+      return null;
+    }
+    return normalized;
+  }
+
   private getTowerLabel(towerType: TowerTypeId): string {
     switch (towerType) {
       case "defender":
@@ -1625,6 +2033,7 @@ export class GameScene extends Phaser.Scene {
       skillQ: trSkillName(this.locale, "arcaneBolt", "Arcane Bolt"),
       skillE: trSkillName(this.locale, "aetherPulse", "Aether Pulse"),
       move: this.getTowerMoveHintText(),
+      upgrade: this.getTowerUpgradeHintText(),
       revive: tr(this.locale, "revive_hold_hint"),
     });
   }
@@ -1639,6 +2048,33 @@ export class GameScene extends Phaser.Scene {
     return tr(this.locale, "move_mode_on", { cost: TOWER_RELOCATE_COST });
   }
 
+  private getTowerUpgradeHintText(): string {
+    const selectedTower = this.getSelectedUpgradeTower();
+    if (!selectedTower) {
+      return tr(this.locale, "upgrade_tower_unselected");
+    }
+
+    if (selectedTower.level >= TOWER_MAX_LEVEL) {
+      return tr(this.locale, "upgrade_tower_max");
+    }
+
+    const cost = getTowerUpgradeCost(selectedTower.level);
+    const localHero = this.getLocalHero();
+    if (!localHero || localHero.gold < cost) {
+      return tr(this.locale, "upgrade_tower_no_gold", {
+        level: selectedTower.level,
+        nextLevel: selectedTower.level + 1,
+        cost,
+      });
+    }
+
+    return tr(this.locale, "upgrade_tower_ready", {
+      level: selectedTower.level,
+      nextLevel: selectedTower.level + 1,
+      cost,
+    });
+  }
+
   private getIntermissionHintText(snapshot: GameSnapshot): string {
     const seconds = Math.ceil(snapshot.intermissionRemainingMs / 1000);
     const nextWave = Math.min(snapshot.totalWaves, snapshot.wave + 1);
@@ -1650,7 +2086,26 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private getPrivateLobbyHintText(snapshot: GameSnapshot): string {
+    const code = snapshot.roomCode ?? this.activeRoomCode ?? "------";
+    const hostPlayerId = snapshot.hostPlayerId ?? this.activeHostPlayerId;
+    if (this.playerId && hostPlayerId === this.playerId) {
+      return tr(this.locale, "private_lobby_host_hint", {
+        code,
+        players: snapshot.playerCount,
+      });
+    }
+    return tr(this.locale, "private_lobby_guest_hint", {
+      code,
+      players: snapshot.playerCount,
+    });
+  }
+
   private getWaveStateLabel(snapshot: GameSnapshot): string {
+    if (snapshot.awaitingHostStart) {
+      return tr(this.locale, "wave_state_waiting_host");
+    }
+
     if (snapshot.waveState === "intermission") {
       return tr(this.locale, "wave_state_intermission", {
         seconds: Math.ceil(snapshot.intermissionRemainingMs / 1000),
@@ -1761,10 +2216,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateWaveActionUi(snapshot: GameSnapshot): void {
+    const isLobbyHostStartVisible =
+      this.screenMode === "playing" &&
+      snapshot.runStatus === "running" &&
+      snapshot.awaitingHostStart &&
+      snapshot.isPrivateRoom &&
+      !snapshot.isUpgradeSelectionPhase &&
+      this.playerId !== null &&
+      snapshot.hostPlayerId === this.playerId;
+
+    if (isLobbyHostStartVisible) {
+      this.waveActionContainer.setVisible(true);
+      this.waveActionLabel.setText(tr(this.locale, "private_lobby_start_button"));
+      this.waveActionInfo.setText(
+        tr(this.locale, "private_lobby_start_info", {
+          code: snapshot.roomCode ?? "------",
+          players: snapshot.playerCount,
+        }),
+      );
+      return;
+    }
+
     const isVisible =
       this.screenMode === "playing" &&
       snapshot.runStatus === "running" &&
       !snapshot.isUpgradeSelectionPhase &&
+      !snapshot.awaitingHostStart &&
       snapshot.waveState === "intermission";
     this.waveActionContainer.setVisible(isVisible);
     if (!isVisible) {
@@ -1845,7 +2322,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateOnboardingUi(snapshot: GameSnapshot): void {
-    const baseVisible = this.screenMode === "playing" && snapshot.runStatus === "running";
+    const baseVisible =
+      this.screenMode === "playing" &&
+      snapshot.runStatus === "running" &&
+      !snapshot.awaitingHostStart;
     if (!baseVisible) {
       this.onboardingContainer.setVisible(false);
       return;
@@ -2071,20 +2551,39 @@ export class GameScene extends Phaser.Scene {
 
     if (target.kind === "tower") {
       const tower = target.value;
+      const isOwnTower = tower.ownerId === this.playerId;
       this.contextPanelTitle.setText(
         tr(this.locale, "context_tower_title", { name: this.getTowerLabel(tower.typeId) }),
       );
       const ownerLabel =
-        tower.ownerId === this.playerId
+        isOwnTower
           ? tr(this.locale, "context_owner_self")
           : tr(this.locale, "context_owner_ally");
 
       const lines = [
         tr(this.locale, "context_owner_line", { owner: ownerLabel }),
+        tr(this.locale, "context_level_line", { level: tower.level }),
         tr(this.locale, "context_damage_line", { damage: tower.damage }),
         tr(this.locale, "context_range_line", { range: tower.range }),
         tr(this.locale, "context_cooldown_line", { cooldown: (tower.cooldownMs / 1000).toFixed(2) }),
       ];
+
+      if (isOwnTower) {
+        if (this.selectedUpgradeTowerId === tower.id) {
+          lines.push(tr(this.locale, "context_tower_selected_upgrade"));
+        }
+
+        if (tower.level >= TOWER_MAX_LEVEL) {
+          lines.push(tr(this.locale, "context_tower_upgrade_max"));
+        } else {
+          lines.push(
+            tr(this.locale, "context_tower_upgrade_hint", {
+              cost: getTowerUpgradeCost(tower.level),
+              nextLevel: tower.level + 1,
+            }),
+          );
+        }
+      }
 
       if (this.selectedMoveTowerId === tower.id) {
         lines.push(tr(this.locale, "context_tower_selected_move"));
@@ -2160,6 +2659,11 @@ export class GameScene extends Phaser.Scene {
       return { kind: "hero", value: bestHero };
     }
 
+    const selectedTower = this.getSelectedUpgradeTower(snapshot);
+    if (selectedTower) {
+      return { kind: "tower", value: selectedTower };
+    }
+
     return null;
   }
 
@@ -2177,28 +2681,29 @@ export class GameScene extends Phaser.Scene {
     return tr(this.locale, "run_status_unknown");
   }
 
-  private resolveMapLayerConfig(): void {
-    const loaded = this.cache.json.get("map-layers-wardens-field");
+  private resolveMapLayerConfig(mapId: string): void {
+    const fallback = MAP_LAYER_CONFIGS[mapId] ?? DEFAULT_MAP_LAYER_CONFIG;
+    const loaded = this.cache.json.get(`map-layers-${mapId}`);
     if (!loaded || typeof loaded !== "object") {
-      this.mapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
+      this.mapLayerConfig = fallback;
       return;
     }
 
     const candidate = loaded as Partial<MapLayerConfig>;
     if (!candidate.ground || !candidate.path || !Array.isArray(candidate.decorRules)) {
-      this.mapLayerConfig = DEFAULT_MAP_LAYER_CONFIG;
+      this.mapLayerConfig = fallback;
       return;
     }
 
     this.mapLayerConfig = {
-      ...DEFAULT_MAP_LAYER_CONFIG,
+      ...fallback,
       ...candidate,
       ground: {
-        ...DEFAULT_MAP_LAYER_CONFIG.ground,
+        ...fallback.ground,
         ...candidate.ground,
       },
       path: {
-        ...DEFAULT_MAP_LAYER_CONFIG.path,
+        ...fallback.path,
         ...candidate.path,
       },
       decorRules: candidate.decorRules.map((rule) => ({
@@ -2233,6 +2738,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private ensureMapRender(map: MapConfig): void {
+    if (this.mapLayerConfig.mapId !== map.id) {
+      this.resolveMapLayerConfig(map.id);
+      this.mapRenderSignature = "";
+    }
+
     const config = this.mapLayerConfig;
     const tileSize = Math.max(4, Math.floor(config.tileSize || TERRAIN_TILE_SIZE));
     const pathRadius = Math.max(0, Math.round(config.path.radiusTiles));
@@ -2386,6 +2896,36 @@ export class GameScene extends Phaser.Scene {
       sprite.setDepth(30 + tower.y * 0.05);
       sprite.setScale(this.getTowerSpriteScale(tower.typeId));
       sprite.setAlpha(1);
+
+      let levelLabel = this.towerLevelLabels.get(tower.id);
+      if (!levelLabel) {
+        levelLabel = this.add
+          .text(tower.x, tower.y - 26, "", {
+            color: "#f6d86f",
+            fontSize: "11px",
+            fontFamily: TITLE_FONT,
+            fontStyle: "bold",
+            stroke: "#250f06",
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5)
+          .setDepth(38 + tower.y * 0.05);
+        this.towerLevelLabels.set(tower.id, levelLabel);
+      }
+
+      if (tower.level > 1) {
+        levelLabel.setVisible(true);
+        levelLabel.setPosition(tower.x, tower.y - 26 + bobY * 0.4);
+        levelLabel.setDepth(38 + tower.y * 0.05);
+        levelLabel.setText(`Lv${tower.level}`);
+        levelLabel.setColor(
+          tower.id === this.selectedUpgradeTowerId && tower.ownerId === this.playerId
+            ? "#fff0a8"
+            : "#f6d86f",
+        );
+      } else {
+        levelLabel.setVisible(false);
+      }
     }
 
     for (const [towerId, sprite] of this.towerSprites.entries()) {
@@ -2394,6 +2934,20 @@ export class GameScene extends Phaser.Scene {
       }
       sprite.destroy();
       this.towerSprites.delete(towerId);
+
+      const label = this.towerLevelLabels.get(towerId);
+      if (label) {
+        label.destroy();
+        this.towerLevelLabels.delete(towerId);
+      }
+    }
+
+    for (const [towerId, label] of this.towerLevelLabels.entries()) {
+      if (activeTowerIds.has(towerId)) {
+        continue;
+      }
+      label.destroy();
+      this.towerLevelLabels.delete(towerId);
     }
   }
 
@@ -2520,6 +3074,7 @@ export class GameScene extends Phaser.Scene {
   private drawTowerOverlays(towers: TowerSnapshot[]): void {
     for (const tower of towers) {
       const isLocalTower = tower.ownerId === this.playerId;
+      const isUpgradeSelected = isLocalTower && tower.id === this.selectedUpgradeTowerId;
       const accent =
         tower.typeId === "defender" ? 0x00e5d4 : tower.typeId === "archer" ? 0xf09840 : 0xa060f0;
 
@@ -2532,6 +3087,12 @@ export class GameScene extends Phaser.Scene {
       if (isLocalTower) {
         this.overlayGraphics.lineStyle(1.2, 0xd4e4f0, 0.5);
         this.overlayGraphics.strokeCircle(tower.x, tower.y - 2, 9.8);
+      }
+
+      if (isUpgradeSelected) {
+        const pulse = 0.5 + Math.sin(this.time.now / 145) * 0.5;
+        this.overlayGraphics.lineStyle(2.2, 0xf6d86f, 0.95);
+        this.overlayGraphics.strokeCircle(tower.x, tower.y - 2, 15.4 + pulse * 1.6);
       }
 
       this.drawTowerGlyph(tower);
@@ -2746,6 +3307,11 @@ export class GameScene extends Phaser.Scene {
     }
     this.towerSprites.clear();
 
+    for (const label of this.towerLevelLabels.values()) {
+      label.destroy();
+    }
+    this.towerLevelLabels.clear();
+
     for (const sprite of this.enemySprites.values()) {
       sprite.destroy();
     }
@@ -2875,6 +3441,18 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private getSelectedUpgradeTower(snapshot = this.snapshot): TowerSnapshot | null {
+    if (!snapshot || !this.playerId || this.selectedUpgradeTowerId === null) {
+      return null;
+    }
+
+    return (
+      snapshot.towers.find(
+        (tower) => tower.id === this.selectedUpgradeTowerId && tower.ownerId === this.playerId,
+      ) ?? null
+    );
+  }
+
   private sanitizeTowerMoveSelection(snapshot = this.snapshot): void {
     if (!snapshot || !this.playerId || this.selectedMoveTowerId === null) {
       return;
@@ -2888,9 +3466,23 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private sanitizeTowerUpgradeSelection(snapshot = this.snapshot): void {
+    if (!snapshot || !this.playerId || this.selectedUpgradeTowerId === null) {
+      return;
+    }
+
+    const towerExists = snapshot.towers.some(
+      (tower) => tower.id === this.selectedUpgradeTowerId && tower.ownerId === this.playerId,
+    );
+    if (!towerExists) {
+      this.selectedUpgradeTowerId = null;
+    }
+  }
+
   private resetTowerMoveState(): void {
     this.moveModeEnabled = false;
     this.selectedMoveTowerId = null;
+    this.selectedUpgradeTowerId = null;
   }
 
   private getLocalHero(snapshot = this.snapshot) {

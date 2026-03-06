@@ -4,15 +4,15 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 1. Game Juice / Feedback Visual (impacto imediato na sensação)
+## 1. ~~Game Juice / Feedback Visual~~ ✓ FEITO
 
-- Screen shake ao receber dano e ao matar inimigos
-- Flash branco/vermelho no sprite do inimigo ao tomar hit
-- Floating damage numbers ao acertar (sobe e desaparece)
-- Partículas de morte ao eliminar inimigo
-- Flash na base ao tomar dano de contato
+- ~~Screen shake ao receber dano e ao matar inimigos~~
+- ~~Flash branco/vermelho no sprite do inimigo ao tomar hit~~
+- ~~Floating damage numbers ao acertar (sobe e desaparece)~~
+- ~~Partículas de morte ao eliminar inimigo~~
+- ~~Flash na base ao tomar dano de contato~~
 
-**Onde implementar:** `GameScene.ts` — loop de combate, função de dano de torre e herói
+**Implementado em:** `GameScene.ts` — `handleSnapshotJuice`, `spawnFloatingDamageText`, `drawDeathBursts`, `drawBaseFlash`
 
 ---
 
@@ -27,14 +27,14 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 3. Upgrades de Torre em Jogo
+## 3. ~~Upgrades de Torre em Jogo~~ ✓ FEITO
 
-- `TowerSnapshot.level` já existe na interface mas nunca é incrementado
-- Adicionar opção de upgrade na torre selecionada (custo em ouro)
-- Cada nível aumenta dano e range da torre
-- Indicador visual de nível na torre (estrelas ou número)
+- ~~`TowerSnapshot.level` já existe na interface mas nunca é incrementado~~
+- ~~Adicionar opção de upgrade na torre selecionada (custo em ouro)~~
+- ~~Cada nível aumenta dano e range da torre~~
+- ~~Indicador visual de nível na torre (estrelas ou número)~~
 
-**Onde implementar:** `packages/shared/src/types.ts` (lógica), `GameScene.ts` (painel de contexto já existe)
+**Implementado em:** `packages/server/src/game/GameRoom.ts`, `packages/client/src/game/GameScene.ts`, `packages/shared/src/constants.ts`, `packages/shared/src/types.ts`
 
 ---
 
@@ -49,13 +49,13 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 5. Segundo Mapa
+## 5. ~~Segundo Mapa~~ ✓ FEITO
 
-- `MAPS: MapConfig[]` em `data.ts` já suporta múltiplos mapas
-- Criar segunda entrada com layout diferente (ex: path em espiral, 3 rotas)
-- Tela de seleção de mapa antes de escolher dificuldade
+- ~~`MAPS: MapConfig[]` em `data.ts` já suporta múltiplos mapas~~
+- ~~Criar segunda entrada com layout diferente (ex: path em espiral, 3 rotas)~~
+- ~~Tela de seleção de mapa antes de escolher dificuldade~~
 
-**Onde implementar:** `packages/shared/src/data.ts` (dados), `GameScene.ts` (tela de seleção)
+**Implementado em:** `packages/shared/src/data.ts`, `GameScene.ts`, `i18n.ts`, `public/assets/maps/fracture-crossroads.layers.json`
 
 ---
 
@@ -69,13 +69,13 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 
 ---
 
-## 7. Salas Privadas Multiplayer
+## 7. ~~Salas Privadas Multiplayer~~ ✓ FEITO
 
-- Arquitetura atual coloca todos jogadores da mesma dificuldade numa sala
-- Adicionar código de sala / invite link
-- Host pode iniciar a partida manualmente
+- ~~Arquitetura atual coloca todos jogadores da mesma dificuldade numa sala~~
+- ~~Adicionar código de sala / invite link~~
+- ~~Host pode iniciar a partida manualmente~~
 
-**Onde implementar:** `packages/server/src/index.ts` — lógica de `RoomManager`
+**Implementado em:** `packages/server/src/index.ts` + `packages/server/src/game/GameRoom.ts` + `packages/client/src/game/GameScene.ts` + `packages/client/src/network/GameClient.ts` + `packages/shared/src/types.ts`
 
 ---
 
@@ -94,12 +94,12 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 | Prioridade | Feature | Esforço estimado |
 |---|---|---|
 | ~~0~~ | ~~Reimaginacao visual completa~~ ✓ | ~~Alto~~ |
-| 1 | Game juice (shake, flash, partículas) | Baixo |
-| 2 | Upgrades de torre | Médio |
+| ~~1~~ | ~~Game juice (shake, flash, partículas)~~ ✓ | ~~Baixo~~ |
+| ~~2~~ | ~~Upgrades de torre~~ ✓ | ~~Médio~~ |
 | 3 | ~~Música adaptativa~~ ✓ | ~~Médio~~ |
-| 4 | Segundo mapa | Médio |
+| ~~4~~ | ~~Segundo mapa~~ ✓ | ~~Médio~~ |
 | 5 | Meta progressão | Alto |
 | 6 | ~~Tela de configurações~~ ✓ | ~~Baixo~~ |
-| 7 | Salas privadas | Alto |
+| ~~7~~ | ~~Salas privadas~~ ✓ | ~~Alto~~ |
 
 Chat, paramos no meio dos itens 1 e 4, pois atingimos o limite de uso do claude.

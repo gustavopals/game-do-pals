@@ -10,8 +10,10 @@ import type {
   UpgradeOption,
 } from "@pals-defence/shared";
 
+export type MatchmakingMode = "public" | "private_create" | "private_join";
+
 interface ClientHandlers {
-  onConnected: (playerId: string) => void;
+  onConnected: (welcome: Extract<ServerMessage, { type: "welcome" }>) => void;
   onState: (snapshot: GameSnapshot) => void;
   onUpgradeOptions: (options: UpgradeOption[], rerollTokens: number) => void;
   onRunEnded: (summary: RunSummary, progression: PlayerProgression) => void;
@@ -23,6 +25,8 @@ const STORAGE_PLAYER_ID_KEY = "pals_defence_player_id";
 interface ConnectOptions {
   difficulty: DifficultyPreset;
   mapId: string;
+  mode: MatchmakingMode;
+  roomCode?: string;
 }
 
 export class GameClient {
@@ -147,6 +151,13 @@ export class GameClient {
     });
   }
 
+  upgradeTower(towerId: number): void {
+    this.send({
+      type: "upgradeTower",
+      towerId,
+    });
+  }
+
   castSkill(skillId: HeroSkillId, targetX: number, targetY: number): void {
     this.send({
       type: "castSkill",
@@ -168,7 +179,7 @@ export class GameClient {
 
     switch (parsed.type) {
       case "welcome":
-        this.handlers.onConnected(parsed.playerId);
+        this.handlers.onConnected(parsed);
         break;
       case "state":
         this.handlers.onState(parsed.snapshot);
@@ -201,6 +212,10 @@ export class GameClient {
     const wsUrl = new URL(rawBaseUrl, fallbackOrigin);
     wsUrl.searchParams.set("difficulty", options.difficulty);
     wsUrl.searchParams.set("map", options.mapId);
+    wsUrl.searchParams.set("mode", options.mode);
+    if (options.mode === "private_join" && options.roomCode) {
+      wsUrl.searchParams.set("room", options.roomCode.trim().toUpperCase());
+    }
     return wsUrl.toString();
   }
 

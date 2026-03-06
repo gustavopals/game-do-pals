@@ -90,6 +90,11 @@ export interface GameSnapshot {
   seed: number;
   difficulty: DifficultyPreset;
   map: MapConfig;
+  isPrivateRoom: boolean;
+  roomCode: string | null;
+  hostPlayerId: string | null;
+  awaitingHostStart: boolean;
+  playerCount: number;
   wave: number;
   totalWaves: number;
   waveState: "spawning" | "intermission" | "completed";
@@ -248,6 +253,10 @@ export type ClientMessage =
       slotIndex: number;
     }
   | {
+      type: "upgradeTower";
+      towerId: number;
+    }
+  | {
       type: "castSkill";
       skillId: HeroSkillId;
       targetX: number;
@@ -262,6 +271,11 @@ export type ServerMessage =
       seed: number;
       difficulty: DifficultyPreset;
       map: MapConfig;
+      isPrivateRoom: boolean;
+      roomCode: string | null;
+      hostPlayerId: string | null;
+      awaitingHostStart: boolean;
+      playerCount: number;
       progression: PlayerProgression;
     }
   | {
