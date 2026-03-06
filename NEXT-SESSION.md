@@ -101,3 +101,5 @@ Baseado na análise do `game-idea.md` vs implementação atual.
 | 5 | Meta progressão | Alto |
 | 6 | ~~Tela de configurações~~ ✓ | ~~Baixo~~ |
 | 7 | Salas privadas | Alto |
+
+Chat, paramos no meio dos itens 1 e 4, pois atingimos o limite de uso do claude.
